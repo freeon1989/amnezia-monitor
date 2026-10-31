@@ -1,0 +1,10 @@
+servers.yaml
+.env
+*.db
+*.db-journal
+.venv/
+__pycache__/
+dist/
+build/
+.venv-build/
+*.spec.bak

@@ -1,0 +1,465 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Amnezia Monitor</title>
+<style>
+:root{
+  --bg:#0b1020; --bg2:#0f1630; --card:#141c38; --card2:#18224a; --line:#243063;
+  --text:#e7ecff; --muted:#8d97c2; --dim:#5d6894;
+  --green:#34d399; --red:#f87171; --amber:#fbbf24; --blue:#60a5fa; --violet:#a78bfa; --cyan:#22d3ee;
+  --down:#60a5fa; --up:#a78bfa; --radius:16px;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:radial-gradient(1200px 600px at 10% -10%,#1b2656 0%,transparent 60%),
+  radial-gradient(900px 500px at 110% 10%,#2a1b56 0%,transparent 55%),var(--bg);color:var(--text);
+  font:14px/1.45 "Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;min-height:100vh}
+.wrap{max-width:1280px;margin:0 auto;padding:22px 22px 40px}
+header{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:18px}
+.brand{display:flex;align-items:center;gap:12px}
+.logo{width:40px;height:40px;border-radius:12px;background:linear-gradient(135deg,#6366f1,#22d3ee);
+  display:grid;place-items:center;font-weight:800;font-size:18px;box-shadow:0 6px 24px #6366f155}
+.brand h1{font-size:19px;margin:0;font-weight:700;letter-spacing:.2px}
+.brand small{color:var(--muted)}
+.upd{color:var(--muted);font-size:13px;display:flex;align-items:center;gap:8px}
+.pulse{width:8px;height:8px;border-radius:50%;background:var(--green);box-shadow:0 0 0 0 #34d39988;animation:p 2s infinite}
+@keyframes p{70%{box-shadow:0 0 0 8px #34d39900}100%{box-shadow:0 0 0 0 #34d39900}}
+.badge{padding:3px 9px;border-radius:999px;font-size:12px;background:#fbbf2422;color:var(--amber);border:1px solid #fbbf2455}
+nav.tabs{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:18px}
+.tab{cursor:pointer;border:1px solid var(--line);background:var(--card);color:var(--text);border-radius:14px;
+  padding:10px 14px;display:flex;align-items:center;gap:10px;min-width:150px;transition:.15s;text-align:left;font:inherit}
+.tab:hover{border-color:#3a4a8f;transform:translateY(-1px)}
+.tab.active{background:linear-gradient(135deg,#1f2b63,#1a2250);border-color:#5b6cff;box-shadow:0 6px 24px #4f5bd533}
+.tab .nm{font-weight:600}.tab .sub{font-size:12px;color:var(--muted)}
+.dot{width:10px;height:10px;border-radius:50%;flex:none}
+.dot.up{background:var(--green);box-shadow:0 0 10px #34d39988}.dot.down{background:var(--red);box-shadow:0 0 10px #f8717188}
+.dot.nodata,.dot.off{background:var(--dim)}
+.grid{display:grid;gap:16px}
+.kpis{grid-template-columns:repeat(5,1fr)}
+.card{background:linear-gradient(180deg,var(--card),var(--bg2));border:1px solid var(--line);border-radius:var(--radius);padding:16px 18px;min-width:0}
+.card h3{margin:0 0 12px;font-size:13px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.8px;display:flex;justify-content:space-between;align-items:center;gap:8px}
+.kpi .v{font-size:24px;font-weight:700;margin-top:2px;white-space:nowrap}
+.kpi .l{color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.7px}
+.kpi .s{color:var(--muted);font-size:12px;margin-top:2px}
+.ok{color:var(--green)}.bad{color:var(--red)}.warn{color:var(--amber)}
+.row2{grid-template-columns:360px 1fr;margin-top:16px}
+.row4{grid-template-columns:1.25fr 1fr;margin-top:16px}
+.gauges{display:flex;justify-content:space-around;gap:8px}
+.gauge{text-align:center}.gauge .gv{font-size:22px;font-weight:700;margin-top:-58px}.gauge .gl{color:var(--muted);font-size:12px;margin-top:20px}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:14px}
+.chip{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:999px;background:var(--card2);border:1px solid var(--line);font-size:12px}
+.chip.sel{background:#2b3a85;border-color:#5b6cff;cursor:pointer}.chip.click{cursor:pointer}
+.meta{display:flex;justify-content:space-between;color:var(--muted);font-size:12px;margin-top:12px}
+.legend{display:flex;gap:14px;font-size:12px;color:var(--muted);text-transform:none;letter-spacing:0;font-weight:400}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:5px;vertical-align:-1px}
+svg text{fill:var(--dim);font-size:10px}
+table{width:100%;border-collapse:collapse}
+th{color:var(--dim);font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.7px;text-align:left;padding:6px 8px;border-bottom:1px solid var(--line)}
+td{padding:10px 8px;border-bottom:1px solid #1d2754;vertical-align:middle}
+tr:last-child td{border-bottom:0}
+.user{display:flex;align-items:center;gap:10px}.user .nm{font-weight:600}.user .sm{font-size:11px;color:var(--dim)}
+.avatar{width:30px;height:30px;border-radius:10px;display:grid;place-items:center;font-weight:700;font-size:13px;flex:none}
+.rate{white-space:nowrap;font-variant-numeric:tabular-nums}.rate .d{color:var(--down)}.rate .u{color:var(--up)}
+.bar{height:6px;border-radius:4px;background:#1d2754;overflow:hidden;display:flex;margin-top:5px;min-width:90px}
+.bar span{display:block;height:100%}
+.hbar{display:grid;grid-template-columns:150px 1fr 48px;gap:10px;align-items:center;margin:7px 0;font-size:13px}
+.hbar .t{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.hbar .b{height:10px;border-radius:6px;background:#1d2754;overflow:hidden}
+.hbar .b span{display:block;height:100%;border-radius:6px;background:linear-gradient(90deg,#6366f1,#22d3ee)}
+.hbar .n{text-align:right;color:var(--muted);font-variant-numeric:tabular-nums}
+.note{background:#fbbf2410;border:1px dashed #fbbf2466;border-radius:12px;padding:14px;color:#f5deb0;font-size:13px}
+.note b{color:var(--amber)}
+.events{max-height:360px;overflow:auto;margin:0;padding:0;list-style:none}
+.events li{display:flex;gap:10px;padding:8px 0;border-bottom:1px solid #1d2754;font-size:13px}
+.events time{color:var(--dim);white-space:nowrap;font-variant-numeric:tabular-nums}
+.empty{color:var(--dim);text-align:center;padding:24px}
+.foot{color:var(--dim);font-size:12px;margin-top:18px;text-align:center}
+.users{margin-top:16px}.tablewrap{overflow-x:auto}
+.hbtn{cursor:pointer;border:1px solid var(--line);background:var(--card);color:var(--text);border-radius:12px;padding:8px 14px;font:inherit;font-size:13px;display:inline-flex;align-items:center;gap:6px;transition:.15s}
+.hbtn:hover{border-color:#5b6cff}
+.btn{cursor:pointer;border:1px solid #5b6cff;background:linear-gradient(135deg,#4f46e5,#2563eb);color:#fff;border-radius:10px;padding:8px 14px;font:inherit;font-size:13px;font-weight:600}
+.btn:hover{filter:brightness(1.12)}.btn:disabled{opacity:.55;cursor:wait}
+.btn.ghost{background:transparent;border-color:var(--line);color:var(--text);font-weight:500}
+.btn.ghost:hover{border-color:#5b6cff}
+.btn.danger{background:transparent;border-color:#f8717166;color:var(--red);font-weight:500}
+.btn.danger:hover{background:#f8717118}
+.btn.sm{padding:5px 10px;font-size:12px}
+.set-grid{display:grid;grid-template-columns:1fr 360px;gap:16px;align-items:start}
+.form{display:grid;grid-template-columns:repeat(6,1fr);gap:12px 14px}
+.fld{display:flex;flex-direction:column;gap:5px;grid-column:span 3}.fld.s2{grid-column:span 2}.fld.s6{grid-column:span 6}.fld.s4{grid-column:span 4}
+.fld label{font-size:12px;color:var(--muted)}.fld .hint{font-size:11px;color:var(--dim)}
+.fld input{background:#0d1430;border:1px solid var(--line);border-radius:10px;color:var(--text);padding:9px 11px;font:inherit;outline:none;transition:.15s}
+.fld input:focus{border-color:#5b6cff;box-shadow:0 0 0 3px #5b6cff33}
+.fld input::placeholder{color:#56608c}
+.actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:16px;align-items:center}
+.pill{font-size:11px;padding:2px 8px;border-radius:999px;border:1px solid var(--line);color:var(--muted);white-space:nowrap}
+.pill.ok{border-color:#34d39955;color:var(--green);background:#34d39912}.pill.warn{border-color:#fbbf2455;color:var(--amber);background:#fbbf2412}
+.steps{list-style:none;margin:12px 0 0;padding:0}.steps li{display:flex;gap:10px;padding:7px 0;border-bottom:1px solid #1d2754;font-size:13px}
+.steps li:last-child{border-bottom:0}.steps .st{font-weight:600;min-width:150px}
+.msg{margin-top:12px;padding:10px 12px;border-radius:10px;font-size:13px}
+.msg.ok{background:#34d39914;border:1px solid #34d39955;color:#a7f3d0}.msg.err{background:#f8717114;border:1px solid #f8717155;color:#fecaca}
+.srvrow td{vertical-align:top}.srvrow .nm{font-weight:600}.srvrow .sm{font-size:12px;color:var(--dim)}
+.welcome{background:linear-gradient(135deg,#1f2b63,#152048);border:1px solid #5b6cff66;border-radius:var(--radius);padding:18px 20px;margin-bottom:16px}
+.welcome h2{margin:0 0 6px;font-size:18px}.welcome p{margin:0;color:#c8d0f5}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:6px 12px;font-size:13px}.kv span:nth-child(odd){color:var(--muted)}
+.kv code{font-size:12px;word-break:break-all;color:#c8d0f5}
+@media (max-width:1050px){.set-grid{grid-template-columns:1fr}}
+@media (max-width:1050px){.kpis{grid-template-columns:repeat(3,1fr)}.row2,.row4{grid-template-columns:1fr}}
+@media (max-width:640px){.kpis{grid-template-columns:repeat(2,1fr)}.wrap{padding:14px}}
+</style>
+<!--STATIC_DATA-->
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="brand"><div class="logo">A</div>
+      <div><h1>Amnezia Monitor</h1><small>мониторинг ваших VPN-серверов · только чтение</small></div></div>
+    <div class="upd"><span id="badge"></span><span class="pulse" id="pulse"></span><span id="upd">загрузка…</span><span id="navbtn"></span></div>
+  </header>
+  <div id="setView" hidden></div>
+  <div id="dashView">
+  <nav class="tabs" id="tabs"></nav>
+  <section class="grid kpis" id="kpis"></section>
+  <section class="grid row2">
+    <div class="card"><h3>Ресурсы сервера</h3><div id="res"></div></div>
+    <div class="card"><h3><span>Трафик сетевого интерфейса сервера, 24 ч</span><span class="legend"><span><i style="background:var(--down)"></i>исходящий</span><span><i style="background:var(--up)"></i>входящий</span></span></h3><div id="traffic"></div></div>
+  </section>
+  <section class="card users"><h3><span>Пользователи</span><span class="legend" id="usum"></span></h3><div class="tablewrap" id="users"></div></section>
+  <section class="grid row4">
+    <div class="card"><h3><span>Сайты (по DNS-запросам, 24 ч)</span><span class="legend" id="dnsq"></span></h3><div id="dns"></div></div>
+    <div class="card"><h3>События</h3><ul class="events" id="events"></ul></div>
+  </section>
+  <div class="foot" id="foot"></div>
+  </div>
+</div>
+<script>
+"use strict";
+const STATIC = window.__DATA__ || null;
+const META = window.__META__ || {};
+let view = (META.settings && (location.hash==="#settings" || META.first_run)) ? "settings" : "dash";
+const REFRESH_MS = 15000;
+let servers = [], current = (location.hash==="#settings"? null : decodeURIComponent(location.hash.slice(1))) || null, detail = null, dnsUser = null, lastLoad = 0;
+
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+function fmtB(n, ps){ if(n==null) return "—"; const u=["Б","КБ","МБ","ГБ","ТБ"]; let i=0; n=+n;
+  while(n>=1024&&i<u.length-1){n/=1024;i++} return (i?n.toFixed(n<10?1:0):Math.round(n))+" "+u[i]+(ps?"/с":""); }
+function fmtR(n){ if(n==null) return "—"; const b=n*8; const u=["бит/с","Кбит/с","Мбит/с","Гбит/с"]; let i=0,v=b;
+  while(v>=1000&&i<u.length-1){v/=1000;i++} return (v<10&&i?v.toFixed(1):Math.round(v))+" "+u[i]; }
+function fmtD(s){ if(s==null) return "—"; s=Math.max(0,Math.round(s)); if(s<60) return s+" с";
+  const d=Math.floor(s/86400),h=Math.floor(s%86400/3600),m=Math.floor(s%3600/60);
+  return d? d+" д "+h+" ч" : h? h+" ч "+m+" мин" : m+" мин"; }
+function hhmm(ts){ const d=new Date(ts*1000); return d.toLocaleTimeString("ru-RU",{hour:"2-digit",minute:"2-digit"}); }
+function ddhhmm(ts){ const d=new Date(ts*1000); return d.toLocaleDateString("ru-RU",{day:"2-digit",month:"2-digit"})+" "+hhmm(ts); }
+const PALETTE=["#6366f1","#22d3ee","#f472b6","#34d399","#fbbf24","#a78bfa","#fb7185","#38bdf8","#4ade80","#f59e0b"];
+function colorFor(s){ let h=0; for(const c of String(s)) h=(h*31+c.charCodeAt(0))>>>0; return PALETTE[h%PALETTE.length]; }
+const lvl = (v, w, b) => v==null? "" : v>=b? "bad" : v>=w? "warn" : "ok";
+
+async function getJSON(url){ const r = await fetch(url, {cache:"no-store"}); if(!r.ok) throw new Error(r.status); return r.json(); }
+async function load(){
+  if(view==="settings") return;
+  try{
+    if(STATIC){ servers = STATIC.servers; }
+    else servers = await getJSON("/api/servers");
+    if(!current || !servers.find(s=>s.name===current)) current = servers.length? servers[0].name : null;
+    renderTabs();
+    if(!servers.length){ renderNoServers(); }
+    else if(current){
+      detail = STATIC ? STATIC.details[current] : await getJSON("/api/server?name="+encodeURIComponent(current));
+      renderDetail();
+    }
+    lastLoad = Date.now(); $("pulse").style.background="var(--green)";
+  }catch(e){ $("upd").textContent="нет связи с агентом ("+e.message+")"; $("pulse").style.background="var(--red)"; }
+}
+function tick(){
+  if(STATIC){ $("upd").textContent = "статичная копия от "+ddhhmm(STATIC.generated); $("pulse").style.display="none"; return; }
+  if(view==="settings"){ $("upd").textContent = "настройки"; return; }
+  if(lastLoad) $("upd").textContent = "обновлено "+fmtD((Date.now()-lastLoad)/1000)+" назад";
+}
+function select(name){ current=name; dnsUser=null; location.hash=encodeURIComponent(name); load(); }
+
+function renderTabs(){
+  $("tabs").innerHTML = servers.map(s=>{
+    const sub = s.status==="nodata" ? "нет данных" : s.status==="down" ? "недоступен" :
+      `${s.peers_online??0}/${s.peers_total??0} онлайн · ${s.tcp_ms!=null?Math.round(s.tcp_ms)+" мс":"—"}`;
+    return `<button class="tab ${s.name===current?"active":""}" data-n="${esc(s.name)}"><span class="dot ${s.status}"></span>
+      <span><div class="nm">${esc(s.name)}</div><div class="sub">${esc(sub)}</div></span></button>`;
+  }).join("");
+  document.querySelectorAll(".tab").forEach(b=>b.onclick=()=>select(b.dataset.n));
+}
+
+function kpi(label, value, sub, cls){ return `<div class="card kpi"><div class="l">${label}</div><div class="v ${cls||""}">${value}</div><div class="s">${sub||"&nbsp;"}</div></div>`; }
+
+function gauge(v, label, sub){
+  const R=52, C=Math.PI*1.5*R, val=v==null?0:Math.max(0,Math.min(100,v)), off=C*(1-val/100);
+  const col = v==null? "#5d6894" : v>=85? "var(--red)" : v>=65? "var(--amber)" : "var(--green)";
+  return `<div class="gauge"><svg width="140" height="120" viewBox="0 0 140 120">
+    <g transform="rotate(135 70 70)"><circle cx="70" cy="70" r="${R}" fill="none" stroke="#1d2754" stroke-width="12" stroke-linecap="round" stroke-dasharray="${C} 999"/>
+    <circle cx="70" cy="70" r="${R}" fill="none" stroke="${col}" stroke-width="12" stroke-linecap="round" stroke-dasharray="${C} 999" stroke-dashoffset="${off}" style="transition:stroke-dashoffset .6s"/></g></svg>
+    <div class="gv">${v==null?"—":Math.round(v)+"%"}</div><div class="gl">${label}<br><span style="color:var(--dim)">${sub||""}</span></div></div>`;
+}
+
+function barsChart(down, up, start, end, w=760, h=210){
+  const n=down.length, pad={l:46,r:8,t:10,b:22}, iw=w-pad.l-pad.r, ih=h-pad.t-pad.b;
+  const tot=down.map((d,i)=>(d||0)+(up[i]||0)); const max=Math.max(1,...tot);
+  const bw=iw/n, g=Math.max(1,bw*0.18); let s="";
+  for(let k=0;k<=3;k++){ const y=pad.t+ih*k/3; s+=`<line x1="${pad.l}" x2="${w-pad.r}" y1="${y}" y2="${y}" stroke="#1d2754"/>`+
+    `<text x="${pad.l-6}" y="${y+3}" text-anchor="end">${fmtB(max*(1-k/3))}</text>`; }
+  for(let i=0;i<n;i++){
+    const x=pad.l+i*bw+g/2, hd=ih*(down[i]||0)/max, hu=ih*(up[i]||0)/max, t0=start+(end-start)*i/n;
+    const tip=`${hhmm(t0)}–${hhmm(t0+(end-start)/n)}: ↓ ${fmtB(down[i])} · ↑ ${fmtB(up[i])}`;
+    s+=`<g><title>${tip}</title><rect x="${x}" y="${pad.t+ih-hd}" width="${bw-g}" height="${Math.max(0,hd)}" rx="2" fill="url(#gd)"/>`+
+       `<rect x="${x}" y="${pad.t+ih-hd-hu}" width="${bw-g}" height="${Math.max(0,hu)}" rx="2" fill="url(#gu)"/></g>`;
+  }
+  for(let k=0;k<=4;k++){ const t=start+(end-start)*k/4, x=pad.l+iw*k/4;
+    s+=`<text x="${x}" y="${h-6}" text-anchor="${k==0?"start":k==4?"end":"middle"}">${hhmm(t)}</text>`; }
+  return `<svg viewBox="0 0 ${w} ${h}" width="100%" preserveAspectRatio="none" style="display:block">
+    <defs><linearGradient id="gd" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#60a5fa"/><stop offset="1" stop-color="#3b5bdb"/></linearGradient>
+    <linearGradient id="gu" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#c4b5fd"/><stop offset="1" stop-color="#8b5cf6"/></linearGradient></defs>${s}</svg>`;
+}
+
+function lineMini(vals, color, w=280, h=46, maxv){
+  const pts=vals.map((v,i)=>[i,v]).filter(p=>p[1]!=null); if(pts.length<2) return `<svg width="${w}" height="${h}"></svg>`;
+  const max=maxv||Math.max(1,...pts.map(p=>p[1])), n=vals.length-1||1;
+  const xy=pts.map(([i,v])=>[(i/n)*w, h-3-(v/max)*(h-6)]);
+  const d="M"+xy.map(p=>p[0].toFixed(1)+","+p[1].toFixed(1)).join("L");
+  const id="g"+Math.random().toString(36).slice(2,8);
+  return `<svg width="100%" height="${h}" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none"><defs><linearGradient id="${id}" x1="0" x2="0" y1="0" y2="1">
+    <stop offset="0" stop-color="${color}" stop-opacity=".35"/><stop offset="1" stop-color="${color}" stop-opacity="0"/></linearGradient></defs>
+    <path d="${d}L${xy[xy.length-1][0]},${h}L${xy[0][0]},${h}Z" fill="url(#${id})"/><path d="${d}" fill="none" stroke="${color}" stroke-width="1.8" vector-effect="non-scaling-stroke"/></svg>`;
+}
+
+function spark(vals, color){
+  if(!vals || vals.length<2) return `<span style="color:var(--dim)">—</span>`;
+  const w=110,h=28,max=Math.max(1,...vals),n=vals.length-1;
+  const xy=vals.map((v,i)=>[(i/n)*w, h-2-(v/max)*(h-4)]);
+  const d="M"+xy.map(p=>p[0].toFixed(1)+","+p[1].toFixed(1)).join("L");
+  return `<svg width="${w}" height="${h}" viewBox="0 0 ${w} ${h}"><path d="${d}L${w},${h}L0,${h}Z" fill="${color}" opacity=".18"/>
+    <path d="${d}" fill="none" stroke="${color}" stroke-width="1.6"/><circle cx="${xy[n][0]}" cy="${xy[n][1]}" r="2.5" fill="${color}"/></svg>`;
+}
+
+function renderDetail(){
+  const d=detail, c=d.current||{};
+  if(d.status==="nodata"){ $("kpis").innerHTML=kpi("Статус","нет данных","дождитесь первого опроса","warn");
+    ["res","traffic","users","dns"].forEach(k=>$(k).innerHTML=`<div class="empty">нет данных</div>`); $("events").innerHTML=""; return; }
+  const up=c.status==="up", online=d.users.filter(u=>u.online).length;
+  $("kpis").innerHTML =
+    kpi("Статус", up?"● работает":"● недоступен", up? `доступность ${c.availability}% за 24 ч` : esc(c.error||"нет ответа"), up?"ok":"bad") +
+    kpi("Задержка", c.tcp_ms!=null? Math.round(c.tcp_ms)+" мс":"—", c.latency_avg!=null? "в среднем "+Math.round(c.latency_avg)+" мс" : "", lvl(c.tcp_ms,150,400)) +
+    kpi("Аптайм", fmtD(c.uptime_s), c.load1!=null? `load ${c.load1} · ${c.nproc} ядр.` : "") +
+    kpi("Онлайн", `${online} <span style="color:var(--dim);font-size:16px">из ${d.users.length}</span>`, "клиентов подключено") +
+    kpi("Трафик сейчас", `<span style="color:var(--down)">↓</span>${fmtR(c.tx_bps)}`, `<span style="color:var(--up)">↑</span> ${fmtR(c.rx_bps)}`);
+
+  const memSub = c.mem_total? fmtB(c.mem_used)+" из "+fmtB(c.mem_total) : "";
+  $("res").innerHTML = (c.stale? `<div class="note" style="margin-bottom:10px">Показаны последние известные значения — сервер сейчас недоступен.</div>`:"") +
+    `<div class="gauges">${gauge(c.cpu,"CPU",c.nproc?c.nproc+" ядр.":"")}${gauge(c.mem,"Память",memSub)}</div>` +
+    `<div class="meta"><span>CPU за 24 ч</span><span>макс. ${Math.round(Math.max(0,...(d.series.cpu||[]).filter(v=>v!=null)))}%</span></div>` +
+    lineMini(d.series.cpu, "#22d3ee", 300, 40, 100) +
+    `<div class="chips">${d.containers.map(x=>`<span class="chip" title="${esc(x.status)}"><span class="dot ${x.up?"up":"down"}"></span>${esc(x.name.replace("amnezia-",""))}</span>`).join("") || '<span class="chip">контейнеров Amnezia нет</span>'}</div>`;
+
+  const s=d.series;
+  $("traffic").innerHTML = barsChart(s.down_bytes, s.up_bytes, s.start, s.end) +
+    `<div class="meta"><span>Всего за 24 ч: <b style="color:var(--down)">↓ ${fmtB(s.down_bytes.reduce((a,b)=>a+(b||0),0))}</b> · <b style="color:var(--up)">↑ ${fmtB(s.up_bytes.reduce((a,b)=>a+(b||0),0))}</b></span>
+     <span>пик онлайн: ${Math.max(0,...s.online.filter(v=>v!=null))}</span></div>`;
+
+  const maxU=Math.max(1,...d.users.map(u=>u.down_24h+u.up_24h));
+  $("usum").innerHTML = `за 24 ч по клиентам: ↓ ${fmtB(d.totals.down_24h)} · ↑ ${fmtB(d.totals.up_24h)}`;
+  $("users").innerHTML = d.users.length? `<table><thead><tr><th>Пользователь</th><th>Статус</th><th>Скорость сейчас</th><th>Нагрузка</th><th>За 24 часа</th><th>Всего</th></tr></thead><tbody>${
+    d.users.map(u=>{ const col=colorFor(u.client), ini=esc((u.client.match(/[\p{L}\p{N}]/u)||["?"])[0].toUpperCase());
+      const st = u.online? `<span class="ok">● онлайн</span><div class="sm" style="color:var(--dim);font-size:11px">handshake ${fmtD(u.handshake_age)} назад</div>`
+        : `<span style="color:var(--dim)">○ офлайн</span><div style="color:var(--dim);font-size:11px">${u.handshake_age!=null? "был "+fmtD(u.handshake_age)+" назад":"не подключался"}</div>`;
+      const pd=(u.down_24h/maxU*100).toFixed(1), pu=(u.up_24h/maxU*100).toFixed(1);
+      return `<tr><td><div class="user"><div class="avatar" style="background:${col}22;color:${col}">${ini}</div><div><div class="nm">${esc(u.client)}</div><div class="sm">${esc(u.container.replace("amnezia-",""))}${u.endpoint? " · "+esc(u.endpoint):""}</div></div></div></td>
+        <td>${st}</td>
+        <td class="rate"><div><span class="d">↓</span> ${fmtR(u.rate_down)}</div><div><span class="u">↑</span> ${fmtR(u.rate_up)}</div></td>
+        <td>${spark(u.spark, col)}</td>
+        <td class="rate">↓ ${fmtB(u.down_24h)} · ↑ ${fmtB(u.up_24h)}<div class="bar"><span style="width:${pd}%;background:var(--down)"></span><span style="width:${pu}%;background:var(--up)"></span></div></td>
+        <td class="rate" style="color:var(--muted)">↓ ${fmtB(u.down_total)}<br>↑ ${fmtB(u.up_total)}</td></tr>`; }).join("")}</tbody></table>`
+    : `<div class="empty">Клиентов WireGuard/AmneziaWG не найдено</div>`;
+
+  renderDNS();
+  $("events").innerHTML = d.events.length? d.events.map(e=>`<li><time>${ddhhmm(e.ts)}</time><span>${esc(e.message.replace(d.name+": ",""))}</span></li>`).join("")
+    : `<li class="empty">событий нет</li>`;
+  $("foot").textContent = `${d.name}${d.host? " · "+d.host:""} · данные из локальной истории агента · ${STATIC? "статичная копия":"автообновление каждые 15 с"}`;
+}
+
+function renderDNS(){
+  const n=detail.dns||{};
+  if(n.status!=="ok"){ $("dnsq").textContent=""; $("dns").innerHTML=`<div class="note"><b>${n.status==="no_log"?"DNS-журнал не включён на сервере.":"Сайты недоступны."}</b><br>${esc(n.note||"")}</div>
+      <p style="color:var(--dim);font-size:12px;margin:10px 0 0">VPN-туннель сам по себе показывает только объём трафика пользователя, а не какие сайты он открывал.</p>`; return; }
+  $("dnsq").textContent = n.queries+" запросов";
+  const users=n.per_user||[]; const src = dnsUser? (users.find(u=>u.client===dnsUser)||{top:[]}).top : n.top;
+  const max=Math.max(1,...src.map(x=>x.n));
+  $("dns").innerHTML = `<div class="chips" style="margin:0 0 10px">${[`<span class="chip click ${!dnsUser?"sel":""}" data-u="">Все</span>`].concat(
+      users.map(u=>`<span class="chip click ${dnsUser===u.client?"sel":""}" data-u="${esc(u.client)}">${esc(u.client)} <span style="color:var(--dim)">${u.total}</span></span>`)).join("")}</div>` +
+    (src.length? src.map(x=>`<div class="hbar"><span class="t" title="${esc(x.site)}">${esc(x.site)}</span><span class="b"><span style="width:${(x.n/max*100).toFixed(1)}%"></span></span><span class="n">${x.n}</span></div>`).join("")
+      : `<div class="empty">нет запросов</div>`) +
+    `<p style="color:var(--dim);font-size:12px;margin:10px 0 0">По DNS-запросам видно, к каким доменам обращались устройства, но не страницы и не время на сайте. Часть запросов идёт в фоне (обновления, реклама).</p>`;
+  document.querySelectorAll("#dns .chip.click").forEach(ch=>ch.onclick=()=>{ dnsUser=ch.dataset.u||null; renderDNS(); });
+}
+
+function renderNoServers(){
+  const msg = META.settings ? `Серверов пока нет. <button class="btn" onclick="showView('settings')">Добавить сервер</button>`
+                            : "Серверов пока нет — добавьте их в servers.yaml.";
+  $("kpis").innerHTML = `<div class="card" style="grid-column:1/-1;text-align:center;padding:30px">${msg}</div>`;
+  ["res","traffic","users","dns"].forEach(id=>$(id).innerHTML=`<div class="empty">нет данных</div>`);
+  $("events").innerHTML=""; $("foot").textContent="";
+}
+
+/* ---------------------------------------------------------------- Настройки */
+let S = null, editing = null, setMsg = null, testRes = {};
+async function api(method, url, body){
+  const r = await fetch(url, {method, cache:"no-store", headers: Object.assign({"X-Amnezia-Token": META.token},
+    body? {"Content-Type":"application/json"} : {}), body: body? JSON.stringify(body) : undefined});
+  let j = {}; try{ j = await r.json(); }catch(e){}
+  if(!r.ok) throw new Error(j.error || ("ошибка "+r.status));
+  return j;
+}
+function showView(v){
+  view = v;
+  $("setView").hidden = v!=="settings"; $("dashView").hidden = v==="settings";
+  if(v==="settings"){ if(location.hash!=="#settings") history.replaceState(null,"","#settings"); loadSettings(); }
+  else { history.replaceState(null,"", current? "#"+encodeURIComponent(current) : location.pathname); load(); }
+  renderNav();
+}
+function renderNav(){
+  if(!META.settings) return;
+  $("navbtn").innerHTML = view==="settings"
+    ? `<button class="hbtn" onclick="showView('dash')">← К панели</button>`
+    : `<button class="hbtn" onclick="showView('settings')">⚙ Настройки</button>`;
+}
+async function loadSettings(){
+  try{ S = await api("GET","/api/settings"); }catch(e){ setMsg={err:"Не удалось загрузить настройки: "+e.message}; }
+  if(S && !S.servers.length && !editing) editing = {isNew:true, port:22, user:"root"};
+  renderSettings();
+}
+const fv = id => ($(id)||{}).value ?? "";
+function serverForm(){
+  const e = editing, saved = !e.isNew && e.has_password;
+  return `<div class="card" style="margin-top:16px;border-color:#5b6cff88"><h3>${e.isNew? "Новый сервер" : "Изменить сервер «"+esc(e.orig_name)+"»"}</h3>
+  <div class="form">
+    <div class="fld s2"><label>Название</label><input id="f_name" value="${esc(e.name||"")}" placeholder="например, Германия-1" maxlength="40"></div>
+    <div class="fld s2"><label>IP-адрес или домен</label><input id="f_host" value="${esc(e.host||"")}" placeholder="203.0.113.10"></div>
+    <div class="fld s2" style="grid-column:span 1"><label>SSH-порт</label><input id="f_port" type="number" min="1" max="65535" value="${esc(e.port||22)}"></div>
+    <div class="fld" style="grid-column:span 1"><label>Пользователь</label><input id="f_user" value="${esc(e.user||"root")}"></div>
+    <div class="fld"><label>Пароль SSH</label><input id="f_pw" type="password" autocomplete="new-password"
+       placeholder="${saved? "•••••••• пароль сохранён — пусто = не менять" : "пароль этого сервера"}">
+       <span class="hint">${saved? "Пароль сохранён. Введите новый, только если хотите заменить." : "В браузер пароль не возвращается."} Защита: ${esc(S.encryption)}.</span></div>
+    <div class="fld"><label>Путь к SSH-ключу (необязательно)</label><input id="f_key" value="${esc(e.key_path||"")}" placeholder="C:\\Users\\вы\\.ssh\\id_ed25519"></div>
+    <div class="fld s6"><label>Заметка / домен (необязательно)</label><input id="f_notes" value="${esc(e.notes||"")}" maxlength="200" placeholder="например, vpn.example.com, хостинг, тариф"></div>
+  </div>
+  <div class="actions">
+    <button class="btn" id="b_save" onclick="saveServer()">Сохранить</button>
+    <button class="btn ghost" id="b_test" onclick="testServer()">Проверить подключение</button>
+    <button class="btn ghost" onclick="editing=null;testRes.form=null;renderSettings()">Отмена</button>
+    ${saved? `<label style="font-size:12px;color:var(--muted);display:flex;gap:6px;align-items:center"><input type="checkbox" id="f_clear"> удалить сохранённый пароль</label>`:""}
+  </div>
+  ${stepsHtml(testRes.form)}
+  </div>`;
+}
+function stepsHtml(t){
+  if(!t) return "";
+  if(t.pending) return `<div class="msg" style="color:var(--muted)">Проверяю: TCP → вход по SSH → docker ps… (только чтение)</div>`;
+  if(t.error) return `<div class="msg err">${esc(t.error)}</div>`;
+  return `<ul class="steps">${t.steps.map(s=>`<li><span>${s.ok?"✅":"❌"}</span><span class="st">${esc(s.step)}</span><span style="color:var(--muted)">${esc(s.detail)}</span></li>`).join("")}</ul>
+    <div class="msg ${t.ok?"ok":"err"}">${t.ok? "Подключение работает. Агент будет только читать данные, ничего не меняя на сервере." : "Есть проблемы — см. шаги выше."}</div>`;
+}
+function renderSettings(){
+  const v = $("setView");
+  if(!S){ v.innerHTML = `<div class="card">${setMsg? `<div class="msg err">${esc(setMsg.err)}</div>`:"загрузка…"}</div>`; return; }
+  const welcome = !S.servers.length ? `<div class="welcome"><h2>👋 Добро пожаловать в Amnezia Monitor</h2>
+    <p>Добавьте свои серверы AmneziaVPN: адрес, SSH-порт, пользователь и пароль. Программа будет только читать состояние (контейнеры, клиенты, трафик) и ничего не меняет на серверах.</p></div>` : "";
+  const rows = S.servers.map((s,i)=>`<tr class="srvrow">
+      <td><div class="nm">${esc(s.name)}</div><div class="sm">${esc(s.notes||"")}</div></td>
+      <td>${esc(s.user)}@${esc(s.host)}:${s.port}</td>
+      <td>${s.has_password? `<span class="pill ok">🔒 пароль сохранён</span>` : s.key_path? `<span class="pill ok">🔑 ключ</span>` : `<span class="pill warn">нет пароля</span>`}</td>
+      <td style="text-align:right;white-space:nowrap">
+        <button class="btn ghost sm" onclick="testRow(${i})">Проверить</button>
+        <button class="btn ghost sm" onclick="editRow(${i})">Изменить</button>
+        <button class="btn danger sm" onclick="delRow(${i})">Удалить</button></td></tr>
+      ${testRes["r"+i]? `<tr><td colspan="4">${stepsHtml(testRes["r"+i])}</td></tr>`:""}`).join("");
+  v.innerHTML = welcome + `<div class="set-grid"><div>
+    <div class="card"><h3><span>Серверы</span><button class="btn sm" onclick="editing={isNew:true,port:22,user:'root'};testRes.form=null;renderSettings()">+ Добавить сервер</button></h3>
+      ${S.servers.length? `<div class="tablewrap"><table><thead><tr><th>Сервер</th><th>Подключение</th><th>Вход</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`
+        : `<div class="empty">Серверов пока нет</div>`}
+    </div>
+    ${editing? serverForm() : ""}
+    ${setMsg? `<div class="msg ${setMsg.ok?"ok":"err"}">${esc(setMsg.ok||setMsg.err)}</div>`:""}
+  </div>
+  <div>
+    <div class="card"><h3>Опрос и уведомления</h3>
+      <div class="form">
+        <div class="fld s6"><label>Интервал опроса, секунд</label><input id="g_int" type="number" min="15" max="3600" value="${S.interval}"><span class="hint">15–3600. Новые настройки применяются сразу после сохранения.</span></div>
+        <div class="fld s6"><label>Токен Telegram-бота (необязательно)</label><input id="g_tok" type="password" autocomplete="off" placeholder="${S.telegram.has_token? "•••••••• токен сохранён — пусто = не менять" : "123456789:AA..."}"></div>
+        <div class="fld s6"><label>Chat ID (необязательно)</label><input id="g_chat" value="${esc(S.telegram.chat_id)}" placeholder="123456789"><span class="hint">Без токена и chat id уведомления просто не отправляются — панель работает и так.</span></div>
+      </div>
+      <div class="actions"><button class="btn" onclick="saveGeneral()">Сохранить</button>
+        ${S.telegram.has_token? `<button class="btn danger sm" onclick="saveGeneral(true)">Удалить токен</button>`:""}</div>
+    </div>
+    <div class="card" style="margin-top:16px"><h3>Программа</h3>
+      <div class="kv"><span>Папка данных</span><code>${esc(S.data_dir)}</code><span>Шифрование</span><span>${esc(S.encryption)}</span></div>
+      ${S.can_quit? `<div class="actions"><button class="btn danger sm" onclick="quitApp()">Остановить программу</button></div>`:""}
+    </div>
+  </div></div>`;
+}
+function payload(servers, general){
+  return { servers, interval: general? +fv("g_int") : S.interval,
+    telegram: general || {chat_id: S.telegram.chat_id} };
+}
+const keep = s => ({orig_name:s.name, name:s.name, host:s.host, port:s.port, user:s.user, key_path:s.key_path, notes:s.notes});
+async function save(body, okText){
+  try{ S = await api("POST","/api/settings", body); setMsg={ok:okText}; return true; }
+  catch(e){ setMsg={err:e.message}; return false; }
+  finally{ renderSettings(); }
+}
+function formServer(){
+  const e=editing; return {orig_name: e.isNew? null : e.orig_name, name:fv("f_name").trim(), host:fv("f_host").trim(), port:+fv("f_port")||22,
+    user:fv("f_user").trim()||"root", password:fv("f_pw"), key_path:fv("f_key").trim(), notes:fv("f_notes").trim(),
+    clear_password: !!($("f_clear")||{}).checked};
+}
+async function saveServer(){
+  const f = formServer(); $("b_save").disabled=true;
+  const list = S.servers.map(keep);
+  if(editing.isNew) list.push(f); else list[list.findIndex(s=>s.orig_name===editing.orig_name)] = f;
+  if(await save(payload(list), `Сервер «${f.name}» сохранён. Опрос начнётся сразу.`)){ editing=null; testRes={}; renderSettings(); }
+}
+async function testServer(){
+  const f = formServer(); testRes.form={pending:true}; $("b_test").disabled=true;
+  const keepVals = f; renderSettings(); restoreForm(keepVals);
+  try{ testRes.form = await api("POST","/api/settings/test",{server:f}); }catch(e){ testRes.form={error:e.message}; }
+  renderSettings(); restoreForm(keepVals);
+}
+function restoreForm(f){ if(!editing) return; [["f_name","name"],["f_host","host"],["f_port","port"],["f_user","user"],["f_pw","password"],["f_key","key_path"],["f_notes","notes"]].forEach(([id,k])=>{ if($(id)) $(id).value=f[k]??""; }); }
+async function testRow(i){
+  testRes["r"+i]={pending:true}; renderSettings();
+  try{ testRes["r"+i] = await api("POST","/api/settings/test",{server:keep(S.servers[i])}); }catch(e){ testRes["r"+i]={error:e.message}; }
+  renderSettings();
+}
+function editRow(i){ const s=S.servers[i]; editing=Object.assign({orig_name:s.name}, s); testRes.form=null; setMsg=null; renderSettings(); }
+async function delRow(i){
+  const s=S.servers[i]; if(!confirm(`Удалить сервер «${s.name}» из мониторинга? История в базе сохранится.`)) return;
+  testRes={}; await save(payload(S.servers.filter((_,j)=>j!==i).map(keep)), `Сервер «${s.name}» удалён.`);
+}
+async function saveGeneral(clearTok){
+  const g = {chat_id: fv("g_chat").trim(), token: clearTok? "" : fv("g_tok").trim(), clear_token: !!clearTok};
+  await save(payload(S.servers.map(keep), g), clearTok? "Токен удалён." : "Настройки сохранены.");
+}
+async function quitApp(){
+  if(!confirm("Остановить Amnezia Monitor? Мониторинг прекратится до следующего запуска.")) return;
+  try{ await api("POST","/api/app/quit",{}); }catch(e){}
+  document.body.innerHTML = `<div class="wrap"><div class="card" style="margin-top:60px;text-align:center;padding:40px">Amnezia Monitor остановлен. Это окно можно закрыть.</div></div>`;
+}
+
+if(META.demo) $("badge").innerHTML='<span class="badge">демо-данные</span>';
+renderNav();
+if(view==="settings") showView("settings"); else load();
+tick(); setInterval(tick, 1000);
+if(!STATIC) setInterval(load, REFRESH_MS);
+window.addEventListener("hashchange", ()=>{
+  if(location.hash==="#settings"){ if(META.settings && view!=="settings") showView("settings"); return; }
+  const h=decodeURIComponent(location.hash.slice(1)); if(view==="settings") return;
+  if(h && h!==current){ current=h; load(); } });
+</script>
+</body>
+</html>

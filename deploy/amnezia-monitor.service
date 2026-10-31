@@ -1,0 +1,21 @@
+# Постоянная работа (режим run). Установка: см. README.
+[Unit]
+Description=AmneziaVPN read-only monitor
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=amnezia-monitor
+WorkingDirectory=/opt/amnezia-monitor
+EnvironmentFile=-/opt/amnezia-monitor/.env
+ExecStart=/opt/amnezia-monitor/.venv/bin/python /opt/amnezia-monitor/amnezia_monitor.py -c /opt/amnezia-monitor/servers.yaml run
+Restart=always
+RestartSec=30
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/opt/amnezia-monitor
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

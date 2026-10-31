@@ -1,0 +1,9 @@
+[Unit]
+Description=AmneziaVPN daily summary to Telegram
+
+[Service]
+Type=oneshot
+User=amnezia-monitor
+WorkingDirectory=/opt/amnezia-monitor
+EnvironmentFile=-/opt/amnezia-monitor/.env
+ExecStart=/opt/amnezia-monitor/.venv/bin/python /opt/amnezia-monitor/amnezia_monitor.py -c /opt/amnezia-monitor/servers.yaml summary --hours 24 --send

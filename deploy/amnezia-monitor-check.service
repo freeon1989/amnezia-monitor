@@ -1,0 +1,14 @@
+# Альтернатива режиму run: один проход check, запускается таймером.
+[Unit]
+Description=AmneziaVPN read-only monitor (one check)
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=amnezia-monitor
+WorkingDirectory=/opt/amnezia-monitor
+EnvironmentFile=-/opt/amnezia-monitor/.env
+ExecStart=/opt/amnezia-monitor/.venv/bin/python /opt/amnezia-monitor/amnezia_monitor.py -c /opt/amnezia-monitor/servers.yaml check
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/opt/amnezia-monitor

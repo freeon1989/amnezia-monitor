@@ -1,0 +1,39 @@
+# Скопируйте в servers.yaml и заполните СВОИМИ данными:
+#   cp servers.yaml.example servers.yaml && chmod 600 servers.yaml
+# servers.yaml содержит пароли — не коммитьте его и никому не пересылайте.
+# Ниже адреса 203.0.113.x — это документационные адреса-заглушки, не реальные серверы.
+
+interval: 60                 # период опроса, секунд
+db_path: amnezia_monitor.db  # история (SQLite)
+daily_summary_hour: 9        # ежедневная сводка в Telegram после 9:00 (уберите строку — отключить)
+
+defaults:                    # общие параметры (кроме пароля!)
+  user: root
+  port: 22
+  docker_cmd: docker         # если пользователь не root и не в группе docker: "sudo -n docker"
+  timeout: 10
+
+# У КАЖДОГО сервера свой пароль. Общий пароль в defaults запрещён.
+# Вместо password можно указать password_env: ИМЯ_ПЕРЕМЕННОЙ (значение — в .env рядом с конфигом
+# или в окружении), либо key_path: ~/.ssh/id_ed25519 для входа по ключу.
+servers:
+  - {name: test1, host: 203.0.113.11, password: "CHANGE_ME_1"}
+  - {name: test2, host: 203.0.113.12, password: "CHANGE_ME_2"}
+  - {name: test3, host: 203.0.113.13, password: "CHANGE_ME_3"}
+  - {name: test4, host: 203.0.113.14, password: "CHANGE_ME_4"}
+  # Варианты:
+  # - {name: test5, host: 203.0.113.15, password_env: SRV5_PASS}
+  # - {name: test6, host: 203.0.113.16, port: 2222, user: monitor, key_path: ~/.ssh/amnezia_monitor, docker_cmd: "sudo -n docker"}
+
+telegram:                    # необязательно; сами значения берутся из окружения / .env
+  token_env: TELEGRAM_BOT_TOKEN
+  chat_id_env: TELEGRAM_CHAT_ID
+
+thresholds:
+  cpu_percent: 85
+  mem_percent: 90
+  handshake_online_sec: 180  # клиент «онлайн», если последний handshake был не раньше N секунд назад
+
+# Необязательно: свои имена клиентов по публичному ключу (приоритетнее clientsTable Amnezia)
+clients:
+  # "PUBLIC_KEY_BASE64=": "Телефон"
