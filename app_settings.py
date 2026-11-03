@@ -6,8 +6,10 @@
 """
 from __future__ import annotations
 
+import ipaddress
 import os
 import re
+import secrets
 import socket
 import tempfile
 import time
@@ -60,8 +62,88 @@ def _has_password(s: dict) -> bool:
     return bool(s.get("password") or s.get("password_enc") or s.get("password_env"))
 
 
+def local_ipv4s() -> list:
+    """Основной IPv4 этого компьютера, чтобы показать адрес панели. UDP connect ничего не отправляет."""
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            s.connect(("192.0.2.1", 9))  # TEST-NET-1, пакеты не уходят
+            ip = s.getsockname()[0]
+        finally:
+            s.close()
+    except OSError:
+        return []
+    if ip and not ip.startswith("127."):
+        return [ip]
+    return []
+
+
+def _valid_bind(host: str) -> bool:
+    try:
+        ipaddress.ip_address(host)
+        return True
+    except ValueError:
+        return False
+
+
+def _phone_token_from_raw(phone: dict) -> str:
+    if not isinstance(phone, dict):
+        return ""
+    if phone.get("token_enc"):
+        try:
+            return secrets_store.unprotect(str(phone["token_enc"]))
+        except Exception:
+            return ""
+    return str(phone.get("token") or "")
+
+
+def normalize_phone(incoming: dict, prev: dict) -> dict:
+    """Секция phone: приложению разрешено только читать JSON панели. Пароли SSH сюда не входят."""
+    if not isinstance(incoming, dict):
+        raise SettingsError("Настройки телефона: ожидался объект")
+    prev = prev if isinstance(prev, dict) else {}
+    enabled = bool(incoming.get("enabled"))
+    bind = str(incoming.get("bind") or prev.get("bind") or ("0.0.0.0" if enabled else "127.0.0.1")).strip()
+    if not enabled:
+        bind = "127.0.0.1"
+    elif bind in ("127.0.0.1", "::1", "localhost") or bind.startswith("127."):
+        raise SettingsError("Для телефона укажите 0.0.0.0 или IP этого компьютера в локальной сети, не 127.0.0.1")
+    elif not _valid_bind(bind):
+        raise SettingsError("Адрес прослушивания: 0.0.0.0 или IP-адрес этого компьютера")
+    prev_token = _phone_token_from_raw(prev)
+    if incoming.get("rotate_token"):
+        token = secrets.token_urlsafe(24)
+    else:
+        typed = str(incoming.get("token") or "").strip()
+        token = typed or prev_token
+    if enabled and not token:
+        token = secrets.token_urlsafe(24)
+    if token and not re.fullmatch(r"[A-Za-z0-9_\-]{16,128}", token):
+        raise SettingsError("Токен для телефона: 16–128 символов (латиница, цифры, _ и -)")
+    out = {"enabled": enabled, "bind": bind}
+    if token:
+        out.update(_secret_fields(token, "token", "token_enc"))
+    return out
+
+
+def listen_params(raw: dict) -> tuple:
+    """(адрес, токен или None). Пока доступ с телефона выключен — панель только на 127.0.0.1."""
+    phone = raw.get("phone") if isinstance(raw, dict) else None
+    if not isinstance(phone, dict) or not phone.get("enabled"):
+        return "127.0.0.1", None
+    token = _phone_token_from_raw(phone)
+    bind = str(phone.get("bind") or "0.0.0.0").strip()
+    if not token or bind in ("127.0.0.1", "::1", "localhost") or not _valid_bind(bind):
+        return "127.0.0.1", None
+    return bind, token
+
+
 def public_view(raw: dict) -> dict:
-    """То, что можно отдать в браузер: без паролей и токенов."""
+    """То, что можно отдать браузеру на этом компьютере.
+
+    Пароли SSH и токен Telegram не возвращаются. Токен телефона возвращается: его нужно
+    скопировать в приложение, а страница настроек открывается только с 127.0.0.1 и с сессионным ключом.
+    """
     tg = raw.get("telegram") or {}
     servers = []
     for s in raw.get("servers") or []:
@@ -70,11 +152,15 @@ def public_view(raw: dict) -> dict:
             "user": s.get("user", "root"), "key_path": s.get("key_path") or "", "notes": s.get("notes") or "",
             "has_password": _has_password(s), "password_env": s.get("password_env") or "",
         })
+    phone = raw.get("phone") if isinstance(raw.get("phone"), dict) else {}
+    phone_token = _phone_token_from_raw(phone)
     return {
         "servers": servers,
         "interval": int(raw.get("interval", 60)),
         "telegram": {"chat_id": str(tg.get("chat_id") or ""),
                      "has_token": bool(tg.get("token") or tg.get("token_enc"))},
+        "phone": {"enabled": bool(phone.get("enabled")), "bind": str(phone.get("bind") or "127.0.0.1"),
+                  "token": phone_token, "has_token": bool(phone_token)},
     }
 
 
@@ -162,6 +248,8 @@ def apply_update(raw: dict, payload: dict) -> dict:
             tg[k] = tg_old[k]
     if tg:
         new["telegram"] = tg
+    if "phone" in payload:
+        new["phone"] = normalize_phone(payload.get("phone") or {}, raw.get("phone") or {})
     new["servers"] = servers
     return new
 
@@ -261,12 +349,23 @@ class SettingsContext:
         self.runner_factory = runner_factory
         self.tcp = tcp
         self.app_mode = app_mode
+        self.listen_port = None
 
     def get(self) -> dict:
         v = public_view(read_raw(self.config_path))
         v.update({"data_dir": self.data_dir, "config_path": self.config_path,
                   "encryption": "DPAPI (текущий пользователь Windows)" if secrets_store.IS_WINDOWS
                   else "нет (файл с правами 600)", "can_quit": bool(self.on_quit)})
+        phone = dict(v.get("phone") or {})
+        port = self.listen_port
+        urls = []
+        if phone.get("enabled") and phone.get("token") and port:
+            bind = str(phone.get("bind") or "0.0.0.0")
+            hosts = local_ipv4s() if bind in ("0.0.0.0", "::") else [bind]
+            urls = [f"http://{h}:{port}/" for h in hosts]
+        phone["urls"] = urls
+        phone["port"] = port
+        v["phone"] = phone
         return v
 
     def save(self, payload: dict) -> dict:

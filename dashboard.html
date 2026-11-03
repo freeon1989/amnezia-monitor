@@ -90,6 +90,7 @@ tr:last-child td{border-bottom:0}
 .fld{display:flex;flex-direction:column;gap:5px;grid-column:span 3}.fld.s2{grid-column:span 2}.fld.s6{grid-column:span 6}.fld.s4{grid-column:span 4}
 .fld label{font-size:12px;color:var(--muted)}.fld .hint{font-size:11px;color:var(--dim)}
 .fld input{background:#0d1430;border:1px solid var(--line);border-radius:10px;color:var(--text);padding:9px 11px;font:inherit;outline:none;transition:.15s}
+.fld input[type=checkbox]{width:auto;padding:0;box-shadow:none;accent-color:#6366f1}
 .fld input:focus{border-color:#5b6cff;box-shadow:0 0 0 3px #5b6cff33}
 .fld input::placeholder{color:#56608c}
 .actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:16px;align-items:center}
@@ -397,11 +398,32 @@ function renderSettings(){
       <div class="actions"><button class="btn" onclick="saveGeneral()">Сохранить</button>
         ${S.telegram.has_token? `<button class="btn danger sm" onclick="saveGeneral(true)">Удалить токен</button>`:""}</div>
     </div>
+    ${phoneBlock()}
     <div class="card" style="margin-top:16px"><h3>Программа</h3>
       <div class="kv"><span>Папка данных</span><code>${esc(S.data_dir)}</code><span>Шифрование</span><span>${esc(S.encryption)}</span></div>
       ${S.can_quit? `<div class="actions"><button class="btn danger sm" onclick="quitApp()">Остановить программу</button></div>`:""}
     </div>
   </div></div>`;
+}
+function phoneBlock(){
+  const p = S.phone || {enabled:false, bind:"0.0.0.0", token:"", urls:[]};
+  const bindShown = (p.bind && p.bind !== "127.0.0.1") ? p.bind : "0.0.0.0";
+  const urls = (p.urls || []).map(u => `<div style="margin-top:4px"><code>${esc(u)}</code></div>`).join("");
+  return `<div class="card" style="margin-top:16px"><h3>Телефон</h3>
+    <div class="form">
+      <div class="fld s6"><label style="display:flex;gap:8px;align-items:center;color:var(--text);text-transform:none;letter-spacing:0">
+        <input type="checkbox" id="p_on" ${p.enabled ? "checked" : ""}> Разрешить чтение с телефона в локальной сети</label>
+        <span class="hint">Панель начнёт слушать не только этот компьютер. Страница настроек и пароли SSH остаются только здесь. Адрес применяется сам, перезапуск не нужен. В брандмауэре Windows разрешите Amnezia Monitor для частной сети.</span></div>
+      <div class="fld s6"><label>Адрес прослушивания</label><input id="p_bind" value="${esc(bindShown)}" placeholder="0.0.0.0" spellcheck="false">
+        <span class="hint">0.0.0.0 — все интерфейсы этого ПК. Можно указать один LAN-адрес, например 192.168.1.104. Не открывайте порт в интернет: канал HTTP, без TLS.</span></div>
+      <div class="fld s6"><label>Токен для приложения</label><input id="p_tok" value="${esc(p.token || "")}" autocomplete="off" spellcheck="false" placeholder="появится после сохранения">
+        <span class="hint">Вставьте его в Android-приложение. Это не пароль сервера и не токен Telegram. Чужой в вашей сети без токена данные не увидит.</span></div>
+      <div class="fld s6"><label style="display:flex;gap:8px;align-items:center;color:var(--text);text-transform:none;letter-spacing:0">
+        <input type="checkbox" id="p_rot"> Выпустить новый токен</label>
+        <span class="hint"><button class="btn ghost sm" onclick="copyTok()">Копировать токен</button> <span id="p_copy"></span></span></div>
+    </div>
+    ${p.enabled && urls ? `<div class="kv" style="margin-top:12px"><span>Адрес в телефоне</span><span>${urls}</span></div>` : `<div class="hint" style="margin-top:10px">Пока выключено, панель доступна только как http://127.0.0.1:${p.port || "8765"}/ — телефон её не видит. Обходной путь: VPN или SSH-туннель на этот порт.</div>`}
+  </div>`;
 }
 function payload(servers, general){
   return { servers, interval: general? +fv("g_int") : S.interval,
@@ -443,7 +465,10 @@ async function delRow(i){
 }
 async function saveGeneral(clearTok){
   const g = {chat_id: fv("g_chat").trim(), token: clearTok? "" : fv("g_tok").trim(), clear_token: !!clearTok};
-  await save(payload(S.servers.map(keep), g), clearTok? "Токен удалён." : "Настройки сохранены.");
+  const body = payload(S.servers.map(keep), g);
+  body.phone = {enabled: !!($("p_on") && $("p_on").checked), bind: (fv("p_bind") || "0.0.0.0").trim(),
+    token: fv("p_tok").trim(), rotate_token: !!($("p_rot") && $("p_rot").checked)};
+  await save(body, clearTok? "Токен удалён." : "Настройки сохранены. Если включён доступ с телефона, адрес в карточке «Телефон» можно копировать в приложение.");
 }
 async function quitApp(){
   if(!confirm("Остановить Amnezia Monitor? Мониторинг прекратится до следующего запуска.")) return;
@@ -451,6 +476,13 @@ async function quitApp(){
   document.body.innerHTML = `<div class="wrap"><div class="card" style="margin-top:60px;text-align:center;padding:40px">Amnezia Monitor остановлен. Это окно можно закрыть.</div></div>`;
 }
 
+function copyTok(){
+  const el = $("p_tok"); if(!el || !el.value) return;
+  const done = () => { const n = $("p_copy"); if(n) n.textContent = "скопировано"; };
+  const fallback = () => { try { el.focus(); el.select(); document.execCommand("copy"); done(); } catch(e) {} };
+  if(navigator.clipboard) navigator.clipboard.writeText(el.value).then(done, fallback);
+  else fallback();
+}
 if(META.demo) $("badge").innerHTML='<span class="badge">демо-данные</span>';
 renderNav();
 if(view==="settings") showView("settings"); else load();

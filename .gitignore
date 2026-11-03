@@ -8,3 +8,9 @@ dist/
 build/
 .venv-build/
 *.spec.bak
+.gradle/
+local.properties
+*.apk
+*.aab
+*.keystore
+*.jks

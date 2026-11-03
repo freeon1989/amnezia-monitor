@@ -259,6 +259,23 @@ class SettingsHTTP(unittest.TestCase):
     def test_quit_not_available_without_callback(self):
         self.assertEqual(self.req("POST", "/api/app/quit", {})[0], 404)
 
+    def test_phone_token_not_in_page_or_monitor_api(self):
+        body = {"interval": 60, "servers": [
+            {"orig_name": "a", "name": "a", "host": "203.0.113.1", "password": ""}],
+            "phone": {"enabled": True, "bind": "0.0.0.0"}}
+        code, raw = self.req("POST", "/api/settings", body)
+        self.assertEqual(code, 200, raw)
+        phone = json.loads(raw)["phone"]["token"]
+        self.assertGreaterEqual(len(phone), 16)
+        self.assertNotIn("pw-a", raw)
+        code, page = self.req("GET", "/", token=None)
+        self.assertEqual(code, 200)
+        self.assertNotIn(phone, page)                       # в HTML токен чтения не вшивается
+        code, raw = self.req("GET", "/api/servers", token=None)
+        self.assertNotIn(phone, raw)
+        # токен телефона не открывает настройки: это другой секрет, и только с loopback
+        self.assertEqual(self.req("GET", "/api/settings", token=phone)[0], 403)
+
 
 class AppMode(unittest.TestCase):
     def test_single_instance_lock(self):
@@ -301,6 +318,120 @@ class AppMode(unittest.TestCase):
             self.skipTest("Pillow не установлен")
         img = app_main.make_icon_image()
         self.assertEqual(img.size, (64, 64))
+
+
+class PhoneAccess(unittest.TestCase):
+    def setUp(self):
+        p = mock.patch.object(secrets_store, "IS_WINDOWS", False)
+        p.start()
+        self.addCleanup(p.stop)
+
+    def _servers(self):
+        return [{"orig_name": "a", "name": "a", "host": "203.0.113.1", "password": ""}]
+
+    def test_enable_preserve_disable_and_listen(self):
+        raw = st.apply_update({}, {"interval": 60, "servers": [
+            {"name": "a", "host": "203.0.113.1", "password": "pw-a"}],
+            "phone": {"enabled": True, "bind": "0.0.0.0"}})
+        token = raw["phone"]["token"]
+        self.assertTrue(raw["phone"]["enabled"])
+        self.assertGreaterEqual(len(token), 16)
+        self.assertNotIn("password", raw["phone"])
+        again = st.apply_update(raw, {"servers": self._servers()})
+        self.assertEqual(again["phone"]["token"], token)          # правка сервера не стирает доступ телефона
+        self.assertEqual(st.listen_params(again), ("0.0.0.0", token))
+        self.assertEqual(st.listen_params({}), ("127.0.0.1", None))
+        view = st.public_view(again)
+        self.assertEqual(view["phone"]["token"], token)
+        self.assertNotIn("pw-a", json.dumps(view))
+        self.assertNotIn("token", view["telegram"])
+        rotated = st.apply_update(again, {"servers": self._servers(),
+                                          "phone": {"enabled": True, "bind": "0.0.0.0", "rotate_token": True}})
+        self.assertNotEqual(rotated["phone"]["token"], token)
+        off = st.apply_update(rotated, {"servers": self._servers(),
+                                        "phone": {"enabled": False, "token": rotated["phone"]["token"]}})
+        self.assertFalse(off["phone"]["enabled"])
+        self.assertEqual(off["phone"]["bind"], "127.0.0.1")
+        self.assertEqual(off["phone"]["token"], rotated["phone"]["token"])
+        self.assertEqual(st.listen_params(off), ("127.0.0.1", None))
+        with self.assertRaises(st.SettingsError):
+            st.normalize_phone({"enabled": True, "bind": "127.0.0.1"}, {})
+        with self.assertRaises(st.SettingsError):
+            st.normalize_phone({"enabled": True, "bind": "0.0.0.0", "token": "short"}, {})
+        with self.assertRaises(st.SettingsError):
+            st.normalize_phone({"enabled": True, "bind": "not an ip"}, {})
+
+    def test_dpapi_phone_token_roundtrip(self):
+        ms = windows_mocks()
+        for m in ms:
+            m.start()
+        try:
+            raw = st.apply_update({}, {"servers": [{"name": "a", "host": "203.0.113.1", "password": SECRET}],
+                                       "phone": {"enabled": True, "bind": "192.168.1.104"}})
+            self.assertIn("token_enc", raw["phone"])
+            self.assertNotIn("token", raw["phone"])
+            self.assertNotIn(SECRET, json.dumps(raw))
+            view = st.public_view(raw)
+            self.assertTrue(view["phone"]["token"])
+            self.assertNotIn(SECRET, view["phone"]["token"])
+            host, token = st.listen_params(raw)
+            self.assertEqual(host, "192.168.1.104")
+            self.assertEqual(token, view["phone"]["token"])
+        finally:
+            for m in ms:
+                m.stop()
+
+    def test_load_config_does_not_expose_phone_token(self):
+        d = Path(tempfile.mkdtemp())
+        raw = st.apply_update({}, {"servers": [{"name": "a", "host": "203.0.113.1", "password": "pw-a"}],
+                                   "phone": {"enabled": True}})
+        st.write_raw(d / "servers.yaml", raw)
+        cfg = am.load_config(str(d / "servers.yaml"))
+        self.assertEqual(cfg.servers[0].name, "a")
+        self.assertNotIn(raw["phone"]["token"], repr(cfg))
+
+    def test_make_server_refuses_lan_settings_without_token(self):
+        d = Path(tempfile.mkdtemp())
+        ctx = st.SettingsContext(d / "servers.yaml", "sess", str(d))
+        with self.assertRaises(ValueError):
+            dashboard.make_server(lambda: am.Store(":memory:"), am.Config(servers=[]),
+                                  "0.0.0.0", 0, settings=ctx)
+        httpd = dashboard.make_server(lambda: am.Store(":memory:"), am.Config(servers=[]),
+                                      "127.0.0.1", 0, settings=ctx, read_token="t" * 16)
+        httpd.server_close()
+
+    def test_panel_rebind_and_remote_token(self):
+        token = "phone-token-aaaaaaaa"
+        panel = app_main.PanelServer(
+            lambda host, port, read: dashboard.make_server(
+                lambda: am.Store(":memory:"), am.Config(servers=[]), host, port, read_token=read), 0)
+        try:
+            port = panel.start("127.0.0.1", None)
+            self.assertTrue(port)
+            code = self._status(port, "/api/health")
+            self.assertEqual(code, 200)
+            panel.update("0.0.0.0", token)
+            self.assertEqual(panel.host, "0.0.0.0")
+            # с этого же компьютера по-прежнему без токена
+            self.assertEqual(self._status(panel.port, "/api/health"), 200)
+            with mock.patch.object(dashboard, "_is_loopback", lambda addr: False):
+                self.assertEqual(self._status(panel.port, "/api/servers"), 403)
+                self.assertEqual(self._status(panel.port, "/api/health", {"X-Amnezia-Token": token}), 200)
+                self.assertEqual(self._status(panel.port, "/api/health", {"Authorization": "Bearer " + token}), 200)
+                self.assertEqual(self._status(panel.port, "/api/servers", {"X-Amnezia-Token": "wrong-token"}), 403)
+                self.assertEqual(self._status(panel.port, "/api/servers", method="OPTIONS"), 204)
+        finally:
+            panel.stop()
+
+    def _status(self, port, path, headers=None, method="GET"):
+        c = http.client.HTTPConnection("127.0.0.1", port, timeout=10)
+        try:
+            c.request(method, path, headers=headers or {})
+            r = c.getresponse()
+            r.read()
+            return r.status
+        finally:
+            c.close()
 
 
 if __name__ == "__main__":
