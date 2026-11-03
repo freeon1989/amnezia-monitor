@@ -65,12 +65,33 @@ private fun MonitorApp(vm: MonitorViewModel) {
             HomeScreen(
                 home = vm.home,
                 onRefresh = vm::pull,
-                onOpen = { name -> nav.navigate("server/${Uri.encode(name)}") },
+                onOpen = { server ->
+                    val local = server.localId
+                    if (local != null) nav.navigate("local/${Uri.encode(local)}")
+                    else nav.navigate("server/${Uri.encode(server.name)}")
+                },
                 onSettings = { nav.navigate("settings") },
             )
         }
         composable("settings") {
             SettingsScreen(vm = vm, onBack = { nav.popBackStack() })
+        }
+        composable(
+            route = "local/{id}",
+            arguments = listOf(navArgument("id") { type = NavType.StringType }),
+        ) { entry ->
+            val id = entry.arguments?.getString("id").orEmpty()
+            DisposableEffect(id) {
+                vm.watchLocal(id)
+                onDispose { vm.watchLocal(null) }
+            }
+            DetailScreen(
+                name = vm.detail.detail?.name ?: "Сервер",
+                state = vm.detail,
+                onBack = { nav.popBackStack() },
+                onRefresh = vm::pull,
+                onHours = vm::setHours,
+            )
         }
         composable(
             route = "server/{name}",

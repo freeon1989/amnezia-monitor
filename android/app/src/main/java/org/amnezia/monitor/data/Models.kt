@@ -11,11 +11,29 @@ data class Endpoint(
     val token: String = "",
 )
 
+/**
+ * Сервер из резервной копии или vpn:// AmneziaVPN.
+ * Пароль SSH и ключ лежат только в зашифрованных настройках. Ключи VPN сюда не копируются.
+ */
+@Serializable
+data class ImportedServer(
+    val id: String,
+    val name: String,
+    val host: String,
+    val port: Int = 22,
+    val user: String = "root",
+    val password: String = "",
+    val privateKey: String = "",
+) {
+    val hasSshAuth: Boolean get() = password.isNotBlank() || privateKey.isNotBlank()
+}
+
 @Serializable
 data class AppSettings(
     val endpoints: List<Endpoint> = emptyList(),
     val activeId: String? = null,
     val intervalSec: Int = 30,
+    val imported: List<ImportedServer> = emptyList(),
 ) {
     val active: Endpoint?
         get() = endpoints.firstOrNull { it.id == activeId } ?: endpoints.firstOrNull()
@@ -23,7 +41,12 @@ data class AppSettings(
     fun normalized(): AppSettings {
         val list = endpoints.take(20)
         val activeOk = list.firstOrNull { it.id == activeId }?.id ?: list.firstOrNull()?.id
-        return copy(endpoints = list, activeId = activeOk, intervalSec = intervalSec.coerceIn(15, 300))
+        return copy(
+            endpoints = list,
+            activeId = activeOk,
+            intervalSec = intervalSec.coerceIn(15, 300),
+            imported = imported.take(32),
+        )
     }
 }
 
@@ -40,6 +63,7 @@ data class ServerSummary(
     val rxBps: Double?,
     val txBps: Double?,
     val error: String?,
+    val localId: String? = null,
 )
 
 data class Current(

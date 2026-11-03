@@ -1,5 +1,7 @@
 package org.amnezia.monitor.ui
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -42,10 +44,63 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.unit.dp
 import org.amnezia.monitor.MonitorViewModel
 import org.amnezia.monitor.data.Endpoint
+import org.amnezia.monitor.data.ImportedServer
 import org.amnezia.monitor.data.cleanToken
 import org.amnezia.monitor.data.normalizeBaseUrl
 
 private val intervals = listOf(15, 30, 60, 120)
+
+@Composable
+private fun ImportFromAmneziaCard(
+    servers: List<ImportedServer>,
+    message: String?,
+    paste: String,
+    onPaste: (String) -> Unit,
+    onPick: () -> Unit,
+    onImportText: () -> Unit,
+    onDelete: (ImportedServer) -> Unit,
+) {
+    Card(colors = CardDefaults.cardColors(containerColor = Card), modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Импорт из AmneziaVPN", fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.titleMedium)
+            Text(
+                "Список серверов AmneziaVPN лежит в закрытой памяти приложения и зашифрован. Другое приложение его не видит, root для этого не нужен и не обязателен. Сделайте резервную копию в AmneziaVPN (Настройки → резервная копия) и выберите файл здесь, либо вставьте ссылку vpn://.",
+                color = Muted,
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Text(
+                "Полная копия содержит пароль SSH: он сохраняется только в защищённом хранилище телефона и используется для команд чтения (нагрузка, пиры, трафик). Клиентский .conf или vpn:// без пароля добавит адрес. Если этот хост уже есть в панели на компьютере, цифры берутся оттуда.",
+                color = Muted,
+                style = MaterialTheme.typography.bodySmall,
+            )
+            OutlinedButton(onClick = onPick) { Text("Выбрать файл") }
+            OutlinedTextField(
+                value = paste,
+                onValueChange = onPaste,
+                label = { Text("Или вставьте vpn:// / JSON") },
+                modifier = Modifier.fillMaxWidth(),
+                minLines = 2,
+                maxLines = 6,
+            )
+            OutlinedButton(onClick = onImportText, enabled = paste.isNotBlank()) { Text("Импортировать") }
+            if (message != null) Text(message, color = TextMain, style = MaterialTheme.typography.bodySmall)
+            servers.forEach { srv ->
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text(srv.name, fontWeight = FontWeight.SemiBold)
+                        Text(
+                            "${srv.user}@${srv.host}:${srv.port} · " +
+                                if (srv.hasSshAuth) "пароль SSH сохранён" else "только адрес",
+                            color = Muted,
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                    TextButton(onClick = { onDelete(srv) }) { Text("Удалить") }
+                }
+            }
+        }
+    }
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -57,6 +112,11 @@ fun SettingsScreen(vm: MonitorViewModel, onBack: () -> Unit) {
     var formError by remember { mutableStateOf<String?>(null) }
     var testMsg by remember { mutableStateOf<String?>(null) }
     var testing by remember { mutableStateOf(false) }
+    var paste by remember { mutableStateOf("") }
+    var dropImport by remember { mutableStateOf<ImportedServer?>(null) }
+    val pickFile = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) vm.importUri(uri)
+    }
 
     Scaffold(
         containerColor = Bg,
@@ -82,6 +142,15 @@ fun SettingsScreen(vm: MonitorViewModel, onBack: () -> Unit) {
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+            ImportFromAmneziaCard(
+                servers = settings.imported,
+                message = vm.importMessage,
+                paste = paste,
+                onPaste = { paste = it },
+                onPick = { pickFile.launch(arrayOf("*/*")) },
+                onImportText = { vm.importText(paste) },
+                onDelete = { dropImport = it },
+            )
             Text("Интервал обновления, пока приложение открыто", color = Muted)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 intervals.forEach { sec ->
@@ -181,6 +250,21 @@ fun SettingsScreen(vm: MonitorViewModel, onBack: () -> Unit) {
                 }
             }
         }
+    }
+
+    dropImport?.let { srv ->
+        AlertDialog(
+            onDismissRequest = { dropImport = null },
+            title = { Text("Убрать сервер из мониторинга?") },
+            text = { Text("${srv.name}\n${srv.host}") },
+            confirmButton = {
+                TextButton(onClick = {
+                    vm.deleteImported(srv.id)
+                    dropImport = null
+                }) { Text("Удалить") }
+            },
+            dismissButton = { TextButton(onClick = { dropImport = null }) { Text("Отмена") } },
+        )
     }
 
     pendingDelete?.let { ep ->

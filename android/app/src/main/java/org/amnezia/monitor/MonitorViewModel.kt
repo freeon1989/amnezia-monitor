@@ -16,13 +16,19 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import android.net.Uri
+import org.amnezia.monitor.data.AmneziaImport
 import org.amnezia.monitor.data.AppSettings
 import org.amnezia.monitor.data.Endpoint
+import org.amnezia.monitor.data.ImportedServer
 import org.amnezia.monitor.data.MonitorApi
+import org.amnezia.monitor.data.ProbePrev
 import org.amnezia.monitor.data.ServerDetail
 import org.amnezia.monitor.data.ServerSummary
 import org.amnezia.monitor.data.SettingsStore
+import org.amnezia.monitor.data.SshProbe
 import org.amnezia.monitor.data.friendlyError
+import java.io.ByteArrayOutputStream
 import java.util.UUID
 
 data class HomeUi(
@@ -56,11 +62,17 @@ class MonitorViewModel(
     var detail by mutableStateOf(DetailUi())
         private set
 
+    var importMessage by mutableStateOf<String?>(null)
+        private set
+
     private val gate = Mutex()
     private var loop: Job? = null
     private var foreground = false
     private var openServer: String? = null
+    private var openLocal: String? = null
     private var hours: Int = 24
+    private val localSnaps = mutableMapOf<String, ServerDetail>()
+    private val probePrev = mutableMapOf<String, ProbePrev>()
 
     init {
         viewModelScope.launch {
@@ -68,8 +80,12 @@ class MonitorViewModel(
                 settings = next
                 val ep = next.active
                 home = home.copy(
-                    hasEndpoint = ep != null,
-                    endpointLabel = ep?.label?.ifBlank { ep.baseUrl } ?: "",
+                    hasEndpoint = ep != null || next.imported.isNotEmpty(),
+                    endpointLabel = when {
+                        ep != null -> ep.label.ifBlank { ep.baseUrl }
+                        next.imported.isNotEmpty() -> "AmneziaVPN"
+                        else -> ""
+                    },
                 )
                 if (foreground) restartLoop()
             }
@@ -82,10 +98,20 @@ class MonitorViewModel(
     }
 
     fun watchDetail(name: String?) {
+        openLocal = null
         openServer = name
         if (name != null) {
             viewModelScope.launch { refreshDetail(manual = detail.detail?.name != name) }
         }
+    }
+
+    fun watchLocal(id: String?) {
+        openServer = null
+        openLocal = id
+        if (id == null) return
+        val snap = localSnaps[id]
+        if (snap != null) detail = DetailUi(detail = snap, hours = hours)
+        viewModelScope.launch { refresh(manual = snap == null) }
     }
 
     fun setHours(value: Int) {
@@ -93,7 +119,66 @@ class MonitorViewModel(
         if (h == hours) return
         hours = h
         detail = detail.copy(hours = h)
+        if (openLocal != null) return
         viewModelScope.launch { refreshDetail(manual = true) }
+    }
+
+    fun importText(text: String) {
+        viewModelScope.launch {
+            try {
+                applyImport(text)
+            } catch (e: Exception) {
+                importMessage = e.message ?: "Не удалось прочитать конфиг"
+            }
+        }
+    }
+
+    fun importUri(uri: Uri) {
+        viewModelScope.launch {
+            try {
+                val text = withContext(Dispatchers.IO) { readUri(uri) }
+                applyImport(text)
+            } catch (e: Exception) {
+                importMessage = e.message ?: "Не удалось открыть файл"
+            }
+        }
+    }
+
+    fun deleteImported(id: String) {
+        localSnaps.remove(id)
+        probePrev.remove(id)
+        store.update { cur -> cur.copy(imported = cur.imported.filterNot { it.id == id }) }
+        if (openLocal == id) openLocal = null
+    }
+
+    private fun applyImport(text: String) {
+        val parsed = AmneziaImport.parse(text)
+        var added = 0
+        store.update { cur ->
+            val before = cur.imported.map { it.host.lowercase() to it.port }.toSet()
+            val merged = AmneziaImport.merge(cur.imported, parsed) { newId() }
+            added = merged.count { (it.host.lowercase() to it.port) !in before }
+            cur.copy(imported = merged)
+        }
+        val withSsh = parsed.count { it.hasSshAuth }
+        importMessage = "Серверов в файле: ${parsed.size}. Новых адресов: $added. С паролем SSH: $withSsh."
+    }
+
+    private fun readUri(uri: Uri): String {
+        val app = getApplication<Application>()
+        app.contentResolver.openInputStream(uri)?.use { input ->
+            val buf = ByteArrayOutputStream()
+            val tmp = ByteArray(8192)
+            var total = 0
+            while (true) {
+                val n = input.read(tmp)
+                if (n < 0) break
+                total += n
+                if (total > 1_500_000) throw IllegalArgumentException("Файл слишком большой")
+                buf.write(tmp, 0, n)
+            }
+            return buf.toString(Charsets.UTF_8.name())
+        } ?: throw IllegalArgumentException("Не удалось открыть файл")
     }
 
     fun pull() {
@@ -158,14 +243,16 @@ class MonitorViewModel(
 
     private suspend fun refresh(manual: Boolean) {
         gate.withLock {
-            val ep = store.state.value.active
-            if (ep == null) {
+            val cur = store.state.value
+            val ep = cur.active
+            val imported = cur.imported
+            if (ep == null && imported.isEmpty()) {
                 home = HomeUi()
                 return
             }
             home = home.copy(
                 hasEndpoint = true,
-                endpointLabel = ep.label.ifBlank { ep.baseUrl },
+                endpointLabel = ep?.label?.ifBlank { ep.baseUrl } ?: "AmneziaVPN",
                 refreshing = manual && home.servers.isNotEmpty(),
                 loading = home.servers.isEmpty(),
             )
@@ -173,24 +260,55 @@ class MonitorViewModel(
             if (name != null && manual) {
                 detail = detail.copy(refreshing = detail.detail != null, loading = detail.detail == null)
             }
-            try {
-                val list = withContext(Dispatchers.IO) { api.servers(ep) }
-                home = home.copy(
-                    servers = list,
-                    error = null,
-                    updatedAt = System.currentTimeMillis(),
-                    loading = false,
-                    refreshing = false,
-                )
-            } catch (e: Exception) {
-                val text = friendlyError(e)
-                home = home.copy(error = text, loading = false, refreshing = false)
-                if (name != null) {
-                    detail = detail.copy(error = text, loading = false, refreshing = false, hours = hours)
+            var dash = emptyList<ServerSummary>()
+            var dashError: String? = null
+            if (ep != null) {
+                try {
+                    dash = withContext(Dispatchers.IO) { api.servers(ep) }
+                } catch (e: Exception) {
+                    dashError = friendlyError(e)
                 }
-                return
             }
-            if (name != null) loadDetailLocked(ep, name, manual)
+            val covered = if (dashError == null && ep != null) {
+                dash.mapNotNull { it.host?.lowercase() }.toSet()
+            } else {
+                emptySet()
+            }
+            val localRows = mutableListOf<ServerSummary>()
+            if (imported.isNotEmpty()) {
+                val keys = store.readHostKeys().toMutableMap()
+                var keysChanged = false
+                for (srv in imported) {
+                    if (srv.host.lowercase() in covered) continue
+                    val polled = withContext(Dispatchers.IO) {
+                        val before = keys.toMap()
+                        val result = SshProbe.poll(srv, probePrev[srv.id], keys)
+                        if (keys != before) keysChanged = true
+                        result
+                    }
+                    probePrev[srv.id] = polled.prev
+                    localSnaps[srv.id] = polled.detail
+                    localRows.add(polled.summary)
+                }
+                if (keysChanged) store.writeHostKeys(keys)
+            }
+            home = home.copy(
+                servers = dash + localRows,
+                error = dashError,
+                updatedAt = System.currentTimeMillis(),
+                loading = false,
+                refreshing = false,
+                hasEndpoint = true,
+            )
+            val localId = openLocal
+            if (localId != null) {
+                val snap = localSnaps[localId]
+                if (snap != null) detail = DetailUi(detail = snap, hours = hours)
+            } else if (name != null && ep != null && dashError == null) {
+                loadDetailLocked(ep, name, manual)
+            } else if (name != null && dashError != null) {
+                detail = detail.copy(error = dashError, loading = false, refreshing = false, hours = hours)
+            }
         }
     }
 

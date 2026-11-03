@@ -7,12 +7,13 @@ import androidx.security.crypto.MasterKey
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 
 /**
- * Адрес панели и токен чтения лежат в EncryptedSharedPreferences (ключ в Android Keystore).
- * Паролей SSH здесь нет.
+ * Адрес панели, токен чтения и импортированные SSH-пароли лежат в EncryptedSharedPreferences
+ * (ключ в Android Keystore). Ключи VPN из Amnezia сюда не попадают.
  */
 class SettingsStore(context: Context) {
     private val app = context.applicationContext
@@ -25,6 +26,20 @@ class SettingsStore(context: Context) {
         val next = block(_state.value).normalized()
         prefs.edit().putString(KEY, json.encodeToString(next)).apply()
         _state.value = next
+    }
+
+    /** Отпечатки ключей хостов. Не трогают поток настроек, чтобы опрос не запускался заново. */
+    fun readHostKeys(): Map<String, String> {
+        val raw = prefs.getString(HOST_KEYS, null) ?: return emptyMap()
+        return try {
+            json.decodeFromString<Map<String, String>>(raw)
+        } catch (_: Exception) {
+            emptyMap()
+        }
+    }
+
+    fun writeHostKeys(keys: Map<String, String>) {
+        prefs.edit().putString(HOST_KEYS, json.encodeToString(keys)).apply()
     }
 
     private fun read(): AppSettings {
@@ -61,5 +76,6 @@ class SettingsStore(context: Context) {
     companion object {
         private const val FILE = "amnezia_monitor_secure"
         private const val KEY = "settings"
+        private const val HOST_KEYS = "hostkeys"
     }
 }

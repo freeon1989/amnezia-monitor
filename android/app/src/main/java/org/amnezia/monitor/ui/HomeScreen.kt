@@ -43,7 +43,7 @@ import org.amnezia.monitor.data.fmtRate
 fun HomeScreen(
     home: HomeUi,
     onRefresh: () -> Unit,
-    onOpen: (String) -> Unit,
+    onOpen: (ServerSummary) -> Unit,
     onSettings: () -> Unit,
 ) {
     Scaffold(
@@ -99,8 +99,8 @@ fun HomeScreen(
                         )
                     }
                 }
-                items(home.servers, key = { it.name }) { server ->
-                    ServerCard(server, onClick = { onOpen(server.name) })
+                items(home.servers, key = { it.localId ?: "dash:${it.name}" }) { server ->
+                    ServerCard(server, onClick = { onOpen(server) })
                 }
             }
         }
@@ -116,7 +116,7 @@ private fun WelcomeCard(onSettings: () -> Unit) {
         Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("Подключите панель", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             Text(
-                "Укажите адрес Amnezia Monitor на компьютере, например http://192.168.1.104:8765, и токен из «Настройки → Телефон». Пароли SSH на телефон не копируются.",
+                "Импортируйте серверы из AmneziaVPN (резервная копия или vpn://) или укажите адрес панели на компьютере, например http://192.168.1.104:8765. Пароли SSH сохраняются только в защищённом хранилище телефона.",
                 color = Muted,
             )
             TextButton(onClick = onSettings) { Text("Открыть настройки") }
