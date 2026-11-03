@@ -954,7 +954,8 @@ def run_dashboard(args) -> int:
                 except Exception as e:
                     log.exception("Ошибка цикла: %s", e)
                 time.sleep(max(1, cfg.interval - (time.time() - t0)))
-    dashboard.serve(lambda: Store(db_path), cfg, args.host, args.port, bg, demo=args.demo)
+    dashboard.serve(lambda: Store(db_path), cfg, args.host, args.port, bg, demo=args.demo,
+                    api_token=getattr(args, "api_token", None))
     return 0
 
 
@@ -972,7 +973,11 @@ def main(argv=None) -> int:
     sp.add_argument("--hours", type=float, default=24)
     sp.add_argument("--send", action="store_true", help="отправить в Telegram (если настроен)")
     dp = sub.add_parser("dashboard", help="веб-панель (по умолчанию http://127.0.0.1:8765)")
-    dp.add_argument("--host", default="127.0.0.1", help="адрес; 0.0.0.0 — доступ из сети (без пароля!)")
+    dp.add_argument("--host", default="127.0.0.1",
+                    help="адрес; 0.0.0.0 — доступ из сети (задайте --api-token, иначе без пароля)")
+    dp.add_argument("--api-token", default=os.environ.get("AMNEZIA_API_TOKEN"),
+                    help="токен чтения для запросов не с этого компьютера (или переменная AMNEZIA_API_TOKEN). "
+                         "Не печатается. Пароли SSH через API не передаются")
     dp.add_argument("--port", type=int, default=8765)
     dp.add_argument("--with-monitor", action="store_true", help="заодно опрашивать серверы (как run) в фоне")
     dp.add_argument("--export-html", metavar="FILE", help="сохранить статичный HTML с данными и выйти")

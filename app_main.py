@@ -237,6 +237,86 @@ def bind_server(make, preferred: int):
             log.warning("Порт %s занят — выбираю свободный", preferred)
 
 
+class PanelServer:
+    """HTTP-панель. По умолчанию только 127.0.0.1. Если включён доступ с телефона — ещё и LAN.
+
+    0.0.0.0 уже принимает соединения на 127.0.0.1. Если выбран конкретный IP сети, рядом
+    поднимается второй сокет на 127.0.0.1 с тем же портом, чтобы окно настроек не пропадало.
+    """
+
+    def __init__(self, make, preferred_port: int):
+        self._make = make
+        self.preferred_port = preferred_port
+        self._lock = threading.Lock()
+        self._httpd = []
+        self.host = "127.0.0.1"
+        self.token = None
+        self.port = None
+
+    def start(self, host: str, token):
+        with self._lock:
+            self._open(host, token, self.preferred_port)
+            return self.port
+
+    def update(self, host: str, token):
+        with self._lock:
+            if self._httpd and host == self.host and token == self.token:
+                return self.port
+            port = self.port or self.preferred_port
+            prev_host, prev_token = self.host, self.token
+            self._close()
+            try:
+                self._open(host, token, port)
+            except OSError as e:
+                log.error("Не удалось слушать %s (%s) — возвращаю %s", host, type(e).__name__, prev_host)
+                self._open(prev_host, prev_token, port or 0)
+            return self.port
+
+    def stop(self):
+        with self._lock:
+            self._close()
+
+    def _open(self, host, token, port):
+        primary = self._bind(host, port, token)
+        self._httpd = [primary]
+        self.host, self.token = host, token
+        self.port = primary.server_address[1]
+        if host not in ("127.0.0.1", "localhost", "::1", "0.0.0.0", "::"):
+            try:
+                self._httpd.append(self._bind("127.0.0.1", self.port, token))
+            except OSError as e:
+                log.warning("127.0.0.1:%s недоступен (%s). Панель только на %s.", self.port, type(e).__name__, host)
+        for httpd in self._httpd:
+            threading.Thread(target=httpd.serve_forever, name="http", daemon=True).start()
+        if token and host not in ("127.0.0.1", "localhost", "::1"):
+            log.warning("Панель слушает %s:%s — с других устройств нужен токен из настроек (пароли SSH не отдаются)",
+                        host, self.port)
+        else:
+            log.warning("Панель: http://127.0.0.1:%s/", self.port)
+
+    def _bind(self, host, port, token):
+        try:
+            return self._make(host, port, token)
+        except OSError:
+            if not port:
+                raise
+            log.warning("Порт %s занят — выбираю свободный", port)
+            return self._make(host, 0, token)
+
+    def _close(self):
+        old = list(self._httpd)
+        self._httpd = []
+        for httpd in old:
+            try:
+                httpd.shutdown()
+            except Exception:
+                pass
+            try:
+                httpd.server_close()
+            except Exception:
+                pass
+
+
 def add_args(p: argparse.ArgumentParser):
     p.add_argument("--port", type=int, default=DEFAULT_PORT, help="порт панели (если занят — любой свободный)")
     p.add_argument("--data-dir", help="папка данных (по умолчанию %%APPDATA%%\\AmneziaMonitor)")
@@ -282,28 +362,48 @@ def run(args) -> int:
     holder = ConfigHolder(config_path, db_path)
 
     stop, wake = threading.Event(), threading.Event()
-    httpd_box = {}
+    quitting = {"done": False}
+
+    ctx = app_settings.SettingsContext(config_path, secrets.token_urlsafe(32), str(data_dir),
+                                       on_quit=None)
+    panel = PanelServer(lambda host, port, token: dashboard.make_server(
+        lambda: am.Store(str(db_path)), holder.get, host, port, demo, ctx, read_token=token), args.port)
 
     def quit_app():
+        if quitting["done"]:
+            return
+        quitting["done"] = True
         log.info("Остановка по запросу пользователя")
         stop.set()
         wake.set()
-        if httpd_box.get("httpd"):
-            threading.Thread(target=httpd_box["httpd"].shutdown, daemon=True).start()
+        # shutdown из потока запроса настроек заблокировал бы сам запрос — закрываем отдельно
+        threading.Thread(target=panel.stop, daemon=True).start()
+
+    def apply_listen():
+        if stop.is_set():
+            return
+        try:
+            host, token = app_settings.listen_params(app_settings.read_raw(config_path))
+            panel.update(host, token)
+            ctx.listen_port = panel.port
+            lock.write_port(panel.port)
+        except Exception as e:
+            log.error("Не удалось применить адрес панели: %s", type(e).__name__)
 
     def on_saved():
         holder.reload(force=True)
         wake.set()                                   # опрос сразу с новыми настройками
+        timer = threading.Timer(0.35, apply_listen)
+        timer.daemon = True
+        timer.start()
 
-    ctx = app_settings.SettingsContext(config_path, secrets.token_urlsafe(32), str(data_dir),
-                                       on_saved=on_saved, on_quit=quit_app)
-    httpd = bind_server(lambda port: dashboard.make_server(lambda: am.Store(str(db_path)), holder.get,
-                                                           "127.0.0.1", port, demo, ctx), args.port)
-    httpd_box["httpd"] = httpd
-    port = httpd.server_address[1]
+    ctx.on_saved = on_saved
+    ctx.on_quit = quit_app
+    host, token = app_settings.listen_params(app_settings.read_raw(config_path))
+    port = panel.start(host, token)
+    ctx.listen_port = port
     lock.write_port(port)
     url = f"http://127.0.0.1:{port}/"
-    threading.Thread(target=httpd.serve_forever, name="http", daemon=True).start()
     if not demo:
         threading.Thread(target=monitor_loop, args=(holder, stop, wake), name="monitor", daemon=True).start()
     log.warning("Amnezia Monitor запущен: %s (данные: %s)", url, data_dir)
@@ -329,7 +429,7 @@ def run(args) -> int:
         except KeyboardInterrupt:
             pass
     quit_app()
-    httpd.server_close()
+    panel.stop()
     lock.release()
     return 0
 
