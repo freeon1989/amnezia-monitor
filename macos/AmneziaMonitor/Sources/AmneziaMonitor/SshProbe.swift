@@ -1,3 +1,4 @@
+import AmneziaMonitorCore
 import Darwin
 import Foundation
 
@@ -81,7 +82,7 @@ enum SshProbe {
                 }
                 if errno == EINPROGRESS {
                     var pfd = pollfd(fd: fd, events: Int16(POLLOUT), revents: 0)
-                    let waited = poll(&pfd, nfds_t(1), Int32(timeoutMs))
+                    let waited = Darwin.poll(&pfd, nfds_t(1), Int32(timeoutMs))
                     if waited > 0 {
                         var soerr: Int32 = 0
                         var len = socklen_t(MemoryLayout<Int32>.size)

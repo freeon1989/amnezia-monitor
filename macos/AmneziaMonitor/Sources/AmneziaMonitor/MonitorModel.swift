@@ -1,3 +1,4 @@
+import AmneziaMonitorCore
 import Foundation
 
 struct HomeUi {
@@ -149,9 +150,9 @@ final class MonitorModel: ObservableObject {
     func importText(_ text: String) {
         do {
             let parsed = try AmneziaImport.parse(text)
-            let before = Set(settings.imported.map { ($0.host.lowercased(), $0.port) })
+            let before = Set(settings.imported.map { "\($0.host.lowercased()):\($0.port)" })
             let merged = AmneziaImport.merge(current: settings.imported, incoming: parsed) { UUID().uuidString }
-            let added = merged.filter { !before.contains(($0.host.lowercased(), $0.port)) }.count
+            let added = merged.filter { !before.contains("\($0.host.lowercased()):\($0.port)") }.count
             var next = settings
             next.imported = merged
             try repo.save(next)

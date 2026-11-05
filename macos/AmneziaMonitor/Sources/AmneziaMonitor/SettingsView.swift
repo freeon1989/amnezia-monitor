@@ -1,3 +1,4 @@
+import AmneziaMonitorCore
 import SwiftUI
 import UniformTypeIdentifiers
 

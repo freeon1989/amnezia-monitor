@@ -1,3 +1,4 @@
+import AmneziaMonitorCore
 import Foundation
 
 /// Адрес панели и список серверов — в UserDefaults. Секреты — только в Связке ключей.
