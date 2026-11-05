@@ -283,6 +283,10 @@ JSON API (`/api/servers`, `/api/server`, `/api/health`). Серверы можн
 
 Сборка и установка APK (Android Studio или `./gradlew :app:assembleDebug`) — в [android/README.md](android/README.md).
 
+## Приложение macOS
+
+Тот же клиент для Mac: строка меню и окно, опрос панели (`X-Amnezia-Token`, только чтение) и импорт резервной копии AmneziaVPN, ссылки `vpn://` или `.conf`. Токен и секрет SSH лежат в Связке ключей. Ключи VPN не сохраняются. Если панель недоступна, а в копии есть пароль SSH, Mac сам читает сервер через `/usr/bin/ssh` теми же командами, что и телефон. Сборка — Xcode / `xcodebuild`, macOS 13+. Подробности — в [macos/README.md](macos/README.md).
+
 ## Ограничения
 
 - «Онлайн» определяется по handshake. Клиент без трафика может выглядеть онлайн ещё до 3 минут после отключения.

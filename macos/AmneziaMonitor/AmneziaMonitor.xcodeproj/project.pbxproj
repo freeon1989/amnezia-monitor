@@ -1,0 +1,305 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 56;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		AA00000000000000000000B1 /* AmneziaMonitorCore in Frameworks */ = {isa = PBXBuildFile; productRef = AA0000000000000000000008 /* AmneziaMonitorCore */; };
+		AA0000000000000000000B01 /* AmneziaMonitorApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000F01 /* AmneziaMonitorApp.swift */; };
+		AA0000000000000000000B02 /* MonitorModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000F02 /* MonitorModel.swift */; };
+		AA0000000000000000000B03 /* KeychainStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000F03 /* KeychainStore.swift */; };
+		AA0000000000000000000B04 /* SettingsRepository.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000F04 /* SettingsRepository.swift */; };
+		AA0000000000000000000B05 /* SshProbe.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000F05 /* SshProbe.swift */; };
+		AA0000000000000000000B06 /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000F06 /* Theme.swift */; };
+		AA0000000000000000000B07 /* MenuBarView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000F07 /* MenuBarView.swift */; };
+		AA0000000000000000000B08 /* RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000F08 /* RootView.swift */; };
+		AA0000000000000000000B09 /* DetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000F09 /* DetailView.swift */; };
+		AA0000000000000000000B0A /* SettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA0000000000000000000F0A /* SettingsView.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		AA0000000000000000000006 /* AmneziaMonitor.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AmneziaMonitor.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		AA0000000000000000000013 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		AA0000000000000000000F01 /* AmneziaMonitorApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmneziaMonitorApp.swift; sourceTree = "<group>"; };
+		AA0000000000000000000F02 /* MonitorModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MonitorModel.swift; sourceTree = "<group>"; };
+		AA0000000000000000000F03 /* KeychainStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeychainStore.swift; sourceTree = "<group>"; };
+		AA0000000000000000000F04 /* SettingsRepository.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsRepository.swift; sourceTree = "<group>"; };
+		AA0000000000000000000F05 /* SshProbe.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SshProbe.swift; sourceTree = "<group>"; };
+		AA0000000000000000000F06 /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
+		AA0000000000000000000F07 /* MenuBarView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MenuBarView.swift; sourceTree = "<group>"; };
+		AA0000000000000000000F08 /* RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RootView.swift; sourceTree = "<group>"; };
+		AA0000000000000000000F09 /* DetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DetailView.swift; sourceTree = "<group>"; };
+		AA0000000000000000000F0A /* SettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		AA0000000000000000000004 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				AA00000000000000000000B1 /* AmneziaMonitorCore in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		AA0000000000000000000010 = {
+			isa = PBXGroup;
+			children = (
+				AA0000000000000000000011 /* Sources */,
+				AA0000000000000000000013 /* Info.plist */,
+				AA0000000000000000000012 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		AA0000000000000000000011 /* Sources */ = {
+			isa = PBXGroup;
+			children = (
+				AA0000000000000000000F01 /* AmneziaMonitorApp.swift */,
+				AA0000000000000000000F09 /* DetailView.swift */,
+				AA0000000000000000000F03 /* KeychainStore.swift */,
+				AA0000000000000000000F07 /* MenuBarView.swift */,
+				AA0000000000000000000F02 /* MonitorModel.swift */,
+				AA0000000000000000000F08 /* RootView.swift */,
+				AA0000000000000000000F04 /* SettingsRepository.swift */,
+				AA0000000000000000000F0A /* SettingsView.swift */,
+				AA0000000000000000000F05 /* SshProbe.swift */,
+				AA0000000000000000000F06 /* Theme.swift */,
+			);
+			path = Sources/AmneziaMonitor;
+			sourceTree = "<group>";
+		};
+		AA0000000000000000000012 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				AA0000000000000000000006 /* AmneziaMonitor.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		AA0000000000000000000002 /* AmneziaMonitor */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = AA000000000000000000000C /* Build configuration list for PBXNativeTarget "AmneziaMonitor" */;
+			buildPhases = (
+				AA0000000000000000000003 /* Sources */,
+				AA0000000000000000000004 /* Frameworks */,
+				AA0000000000000000000005 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = AmneziaMonitor;
+			packageProductDependencies = (
+				AA0000000000000000000008 /* AmneziaMonitorCore */,
+			);
+			productName = AmneziaMonitor;
+			productReference = AA0000000000000000000006 /* AmneziaMonitor.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		AA0000000000000000000001 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 1430;
+				LastUpgradeCheck = 1430;
+			};
+			buildConfigurationList = AA000000000000000000000F /* Build configuration list for PBXProject "AmneziaMonitor" */;
+			compatibilityVersion = "Xcode 14.0";
+			developmentRegion = ru;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				ru,
+				en,
+				Base,
+			);
+			mainGroup = AA0000000000000000000010;
+			packageReferences = (
+				AA0000000000000000000007 /* XCLocalSwiftPackageReference "." */,
+			);
+			productRefGroup = AA0000000000000000000012 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				AA0000000000000000000002 /* AmneziaMonitor */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		AA0000000000000000000005 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		AA0000000000000000000003 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				AA0000000000000000000B01 /* AmneziaMonitorApp.swift in Sources */,
+				AA0000000000000000000B02 /* MonitorModel.swift in Sources */,
+				AA0000000000000000000B03 /* KeychainStore.swift in Sources */,
+				AA0000000000000000000B04 /* SettingsRepository.swift in Sources */,
+				AA0000000000000000000B05 /* SshProbe.swift in Sources */,
+				AA0000000000000000000B06 /* Theme.swift in Sources */,
+				AA0000000000000000000B07 /* MenuBarView.swift in Sources */,
+				AA0000000000000000000B08 /* RootView.swift in Sources */,
+				AA0000000000000000000B09 /* DetailView.swift in Sources */,
+				AA0000000000000000000B0A /* SettingsView.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		AA000000000000000000000A /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Manual;
+				CODE_SIGNING_ALLOWED = YES;
+				CODE_SIGNING_REQUIRED = YES;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_HARDENED_RUNTIME = NO;
+				ENABLE_PREVIEWS = NO;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = org.amnezia.monitor.macos;
+				PRODUCT_NAME = AmneziaMonitor;
+				SDKROOT = macosx;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		AA000000000000000000000B /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Manual;
+				CODE_SIGNING_ALLOWED = YES;
+				CODE_SIGNING_REQUIRED = YES;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_HARDENED_RUNTIME = NO;
+				ENABLE_PREVIEWS = NO;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = org.amnezia.monitor.macos;
+				PRODUCT_NAME = AmneziaMonitor;
+				SDKROOT = macosx;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+		AA000000000000000000000D /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		AA000000000000000000000E /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				SDKROOT = macosx;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		AA000000000000000000000C /* Build configuration list for PBXNativeTarget "AmneziaMonitor" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				AA000000000000000000000A /* Debug */,
+				AA000000000000000000000B /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		AA000000000000000000000F /* Build configuration list for PBXProject "AmneziaMonitor" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				AA000000000000000000000D /* Debug */,
+				AA000000000000000000000E /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		AA0000000000000000000007 /* XCLocalSwiftPackageReference "." */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = .;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		AA0000000000000000000008 /* AmneziaMonitorCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = AA0000000000000000000007 /* XCLocalSwiftPackageReference "." */;
+			productName = AmneziaMonitorCore;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = AA0000000000000000000001 /* Project object */;
+}

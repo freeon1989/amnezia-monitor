@@ -1,0 +1,5 @@
+module CZlibUncompress {
+    header "amz_uncompress.h"
+    link "z"
+    export *
+}

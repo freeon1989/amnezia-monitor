@@ -14,3 +14,8 @@ local.properties
 *.aab
 *.keystore
 *.jks
+.build/
+.swiftpm/
+xcuserdata/
+*.xcuserstate
+DerivedData/
