@@ -385,12 +385,16 @@ def run(args) -> int:
         threading.Timer(args.exit_after, quit_app).start()
 
     if window_mode:
-        if not args.no_tray:
+        def start_tray():
+            if args.no_tray or tray_box.get("icon") is not None:
+                return
             tray_box["icon"] = run_tray(url, data_dir, quit_app, stop, on_open=ui.show, block=False)
             ui.tray_running = tray_box.get("icon") is not None
+
         ui.watch_show_requests(lock, stop)
-        opened = ui.run(open_url)
+        opened = ui.run(open_url, on_ready=start_tray)
         if not opened and not stop.is_set():
+            start_tray()
             if ui.tray_running:
                 _wait_until_stopped(stop)
             else:

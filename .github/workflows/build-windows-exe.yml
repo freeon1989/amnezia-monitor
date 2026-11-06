@@ -352,7 +352,14 @@ jobs:
             if ($win -and $win.Title -match 'Amnezia') { break }
           } while ((Get-Date) -lt $deadline -and -not $p.HasExited)
           if (-not $win) {
-            Write-Host "process exited=$($p.HasExited) title=$($p.MainWindowTitle)"
+            Write-Host "process exited=$($p.HasExited) mainTitle=$($p.MainWindowTitle) mainHandle=$($p.MainWindowHandle)"
+            $logPath = Join-Path $data 'amnezia-monitor.log'
+            if (Test-Path $logPath) {
+              foreach ($line in (Get-Content -LiteralPath $logPath -Tail 60)) {
+                if ($line -match 'CHANGE_ME|dpapi:|password') { Write-Host '[redacted log line]' }
+                else { Write-Host $line }
+              }
+            } else { Write-Host 'no application log' }
             throw 'desktop window did not appear'
           }
           $all = @(Get-CimInstance Win32_Process | Select-Object ProcessId, ParentProcessId, Name)

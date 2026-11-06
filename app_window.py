@@ -137,8 +137,9 @@ class DesktopWindow:
 
         threading.Thread(target=loop, name="show-request", daemon=True).start()
 
-    def run(self, url: str) -> bool:
+    def run(self, url: str, on_ready=None) -> bool:
         """Блокирует поток, пока окно не закрыто по-настоящему. False — окно не создано."""
+        log.warning("Проверка WebView2 перед окном: %s", "есть" if webview2_runtime_installed() else "нет")
         if not webview2_runtime_installed():
             self.explain_missing_runtime()
             return False
@@ -166,9 +167,18 @@ class DesktopWindow:
             confirm_close=False,
         )
         self.window.events.closing += self.on_closing
+        if on_ready is not None:
+            def ready():
+                try:
+                    on_ready()
+                except Exception:
+                    log.exception("Не удалось запустить трей после окна")
+
+            self.window.events.shown += ready
 
         def guard():
             renderer = getattr(webview, "renderer", None)
+            log.warning("Окно: renderer=%s", renderer)
             if renderer and renderer != "edgechromium":
                 self.failure = "renderer-" + str(renderer)
                 log.error("Ожидался Edge WebView2, получен %s. Окно закрывается.", renderer)
