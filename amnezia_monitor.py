@@ -631,10 +631,8 @@ CREATE TABLE IF NOT EXISTS events (
   id INTEGER PRIMARY KEY, ts REAL, server TEXT, kind TEXT, subject TEXT, message TEXT);
 CREATE TABLE IF NOT EXISTS state (key TEXT PRIMARY KEY, value TEXT);
 CREATE TABLE IF NOT EXISTS dns (
-  id INTEGER PRIMARY KEY, ts REAL, server TEXT, client TEXT, ip TEXT, domain TEXT, site TEXT, qtype TEXT,
-  line_key TEXT);
+  id INTEGER PRIMARY KEY, ts REAL, server TEXT, client TEXT, ip TEXT, domain TEXT, site TEXT, qtype TEXT);
 CREATE INDEX IF NOT EXISTS idx_dns ON dns(server, ts);
-CREATE INDEX IF NOT EXISTS idx_dns_line ON dns(server, line_key);
 CREATE INDEX IF NOT EXISTS idx_polls ON polls(server, ts);
 CREATE INDEX IF NOT EXISTS idx_peers ON peers(server, ts);
 CREATE INDEX IF NOT EXISTS idx_events ON events(ts);
@@ -651,10 +649,16 @@ class Store:
             except sqlite3.DatabaseError:
                 pass
         self.db.executescript(SCHEMA)
+        self._migrate_dns_line_key()
+
+    def _migrate_dns_line_key(self) -> None:
+        """Старые базы не знают line_key. Индекс нельзя создавать до ALTER: executescript
+        падает на CREATE INDEX и миграция ниже не выполняется."""
         cols = [r[1] for r in self.db.execute("PRAGMA table_info(dns)")]
         if "line_key" not in cols:
             self.db.execute("ALTER TABLE dns ADD COLUMN line_key TEXT")
-            self.db.execute("CREATE INDEX IF NOT EXISTS idx_dns_line ON dns(server, line_key)")
+        self.db.execute("CREATE INDEX IF NOT EXISTS idx_dns_line ON dns(server, line_key)")
+        self.db.commit()
 
     def get_state(self, key: str, default=None):
         r = self.db.execute("SELECT value FROM state WHERE key=?", (key,)).fetchone()

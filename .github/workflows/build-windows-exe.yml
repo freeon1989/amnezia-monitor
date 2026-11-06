@@ -431,12 +431,110 @@ jobs:
           if ($p.ExitCode -ne 0) { throw "windowed process exit code $($p.ExitCode)" }
           Remove-Item -LiteralPath $data -Recurse -Force
 
+      - name: Upgrade smoke on a pre-line_key database
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $dir = 'C:\amnezia-upgrade'
+          if (Test-Path $dir) { Remove-Item -LiteralPath $dir -Recurse -Force }
+          New-Item -ItemType Directory -Path $dir | Out-Null
+          @'
+          interval: 60
+          servers: []
+          '@ | Set-Content -Encoding utf8 (Join-Path $dir 'servers.yaml')
+          @'
+          import sqlite3, pathlib
+          p = pathlib.Path(r"C:\amnezia-upgrade\amnezia_monitor.db")
+          db = sqlite3.connect(p)
+          db.executescript("""
+          CREATE TABLE polls (
+            id INTEGER PRIMARY KEY, ts REAL, server TEXT, reachable INTEGER, ssh_ok INTEGER,
+            tcp_ms REAL, ping_ms REAL, uptime_s REAL, load1 REAL, nproc INTEGER, cpu_pct REAL,
+            mem_pct REAL, mem_used INTEGER, mem_total INTEGER, rx_bps REAL, tx_bps REAL,
+            peers_total INTEGER, peers_online INTEGER, error TEXT);
+          CREATE TABLE containers (
+            id INTEGER PRIMARY KEY, ts REAL, server TEXT, name TEXT, type TEXT, up INTEGER, status TEXT);
+          CREATE TABLE peers (
+            id INTEGER PRIMARY KEY, ts REAL, server TEXT, container TEXT, pubkey TEXT, client TEXT,
+            endpoint TEXT, handshake INTEGER, rx INTEGER, tx INTEGER, online INTEGER);
+          CREATE TABLE events (
+            id INTEGER PRIMARY KEY, ts REAL, server TEXT, kind TEXT, subject TEXT, message TEXT);
+          CREATE TABLE state (key TEXT PRIMARY KEY, value TEXT);
+          CREATE TABLE dns (
+            id INTEGER PRIMARY KEY, ts REAL, server TEXT, client TEXT, ip TEXT, domain TEXT, site TEXT, qtype TEXT);
+          CREATE INDEX idx_dns ON dns(server, ts);
+          """)
+          db.execute("INSERT INTO polls(ts, server, reachable, ssh_ok, peers_online) VALUES (1700000000, 'srv', 1, 1, 1)")
+          db.execute("INSERT INTO containers(ts, server, name, type, up, status) VALUES (1700000000, 'srv', 'amnezia-dns', 'dns', 1, 'Up')")
+          db.execute("INSERT INTO peers(ts, server, container, pubkey, client, online) VALUES (1700000000, 'srv', 'amnezia-awg', 'K=', 'phone', 1)")
+          db.execute("INSERT INTO events(ts, server, kind, subject, message) VALUES (1700000000, 'srv', 'note', 'srv', 'kept')")
+          db.execute("INSERT INTO state(key, value) VALUES ('srv:srv', ?)", ('{"dns_status":"ok","interval_note":"keep-me"}',))
+          db.execute("INSERT INTO dns(ts, server, client, ip, domain, site, qtype) VALUES (?,?,?,?,?,?,?)",
+                     (1700000100, "srv", "phone", "10.8.1.2", "example.com", "example.com", "A"))
+          db.execute("INSERT INTO dns(ts, server, client, ip, domain, site, qtype) VALUES (?,?,?,?,?,?,?)",
+                     (1700000200, "srv", "phone", "10.8.1.2", "example.org", "example.org", "AAAA"))
+          db.commit(); db.close()
+          print("old db ready")
+          '@ | Set-Content -Encoding utf8 (Join-Path $dir 'make_old_db.py')
+          python (Join-Path $dir 'make_old_db.py')
+          $exe = (Resolve-Path 'dist\AmneziaMonitor.exe').Path
+          function Start-Upgrade([int]$port, [int]$seconds) {
+            $proc = Start-Process -FilePath $exe -WorkingDirectory (Split-Path $exe) -PassThru -ArgumentList @(
+              '--exit-after', "$seconds", '--port', "$port", '--data-dir', $dir, '-v'
+            )
+            $deadline = (Get-Date).AddSeconds(50)
+            $healthy = $false
+            do {
+              Start-Sleep -Seconds 2
+              try {
+                $r = Invoke-WebRequest -Uri "http://127.0.0.1:$port/api/health" -UseBasicParsing -TimeoutSec 3
+                if ($r.Content -match 'amnezia-monitor') { $healthy = $true; break }
+              } catch {}
+            } while ((Get-Date) -lt $deadline -and -not $proc.HasExited)
+            if (-not $healthy) {
+              $log = Join-Path $dir 'amnezia-monitor.log'
+              if (Test-Path $log) { Get-Content $log -Tail 40 | ForEach-Object { if ($_ -match 'CHANGE_ME|dpapi:|password') { '[redacted]' } else { $_ } } }
+              if (-not $proc.HasExited) { Stop-Process -Id $proc.Id -Force }
+              throw "upgrade launch on port $port did not become healthy"
+            }
+            if (-not $proc.WaitForExit(40000)) { Stop-Process -Id $proc.Id -Force; throw "upgrade launch on port $port hung" }
+            if ($proc.ExitCode -ne 0) { throw "upgrade launch exit $($proc.ExitCode)" }
+            return $proc.Id
+          }
+          $first = Start-Upgrade 18767 20
+          $second = Start-Upgrade 18768 12
+          python -c @"
+          import sqlite3
+          db = sqlite3.connect(r'C:\amnezia-upgrade\amnezia_monitor.db')
+          cols = [r[1] for r in db.execute('PRAGMA table_info(dns)')]
+          idx = [r[1] for r in db.execute('PRAGMA index_list(dns)')]
+          assert 'line_key' in cols, cols
+          assert any('idx_dns_line' in n for n in idx), idx
+          assert db.execute('select count(*) from polls').fetchone()[0] == 1
+          assert db.execute('select count(*) from peers').fetchone()[0] == 1
+          assert db.execute('select count(*) from events').fetchone()[0] == 1
+          assert db.execute('select count(*) from containers').fetchone()[0] == 1
+          domains = [r[0] for r in db.execute('select domain from dns order by id')]
+          assert domains == ['example.com', 'example.org'], domains
+          state = db.execute("select value from state where key='srv:srv'").fetchone()[0]
+          assert 'keep-me' in state, state
+          print('upgrade-db-ok', domains)
+          "@
+          @"
+          upgrade=ok
+          first_pid=$first
+          second_pid=$second
+          domains=example.com,example.org
+          "@ | Set-Content -Encoding ascii build-meta\upgrade-smoke.txt
+          Write-Host 'upgrade smoke ok'
+          Remove-Item -LiteralPath $dir -Recurse -Force
+
       - name: Package zip
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
           $stage = Join-Path $env:RUNNER_TEMP 'amnezia-pkg'
-          $root = Join-Path $stage 'AmneziaMonitor-win-x64-dns'
+          $root = Join-Path $stage 'AmneziaMonitor-win-x64-dns-fixed'
           if (Test-Path $stage) { Remove-Item -Recurse -Force $stage }
           New-Item -ItemType Directory -Path $root | Out-Null
           Copy-Item dist\AmneziaMonitor.exe (Join-Path $root 'AmneziaMonitor.exe')
@@ -469,11 +567,11 @@ jobs:
           В этом архиве нет servers.yaml, .env, личных адресов серверов и паролей.
           '@
           [System.IO.File]::WriteAllText((Join-Path $root 'START.txt'), ($start.Trim() -replace "`n", "`r`n") + "`r`n")
-          $zip = Join-Path (Get-Location) 'dist\AmneziaMonitor-win-x64-dns.zip'
+          $zip = Join-Path (Get-Location) 'dist\AmneziaMonitor-win-x64-dns-fixed.zip'
           if (Test-Path $zip) { Remove-Item -Force $zip }
           Compress-Archive -Path $root -DestinationPath $zip
           $zipHash = (Get-FileHash -Algorithm SHA256 $zip).Hash.ToLower()
-          Set-Content -Encoding ascii -Path build-meta\zip-sha256.txt -Value "$zipHash  AmneziaMonitor-win-x64-dns.zip"
+          Set-Content -Encoding ascii -Path build-meta\zip-sha256.txt -Value "$zipHash  AmneziaMonitor-win-x64-dns-fixed.zip"
           Set-Content -Encoding ascii -Path build-meta\exe-sha256.txt -Value "$hash  AmneziaMonitor.exe"
           Write-Host "exe $hash"
           Write-Host "zip $zipHash"
@@ -481,9 +579,9 @@ jobs:
       - name: Upload distributable
         uses: actions/upload-artifact@v4
         with:
-          name: AmneziaMonitor-win-x64-dns
+          name: AmneziaMonitor-win-x64-dns-fixed
           path: |
-            dist/AmneziaMonitor-win-x64-dns.zip
+            dist/AmneziaMonitor-win-x64-dns-fixed.zip
             build-meta/**
           if-no-files-found: error
           retention-days: 14
