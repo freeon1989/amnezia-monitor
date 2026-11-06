@@ -98,12 +98,12 @@ jobs:
           $magicName = switch ($magic) { 0x20B { 'PE32+' } 0x10B { 'PE32' } default { '0x{0:X}' -f $magic } }
           $subName = switch ($subsystem) { 2 { 'WINDOWS_GUI' } 3 { 'WINDOWS_CUI' } default { "$subsystem" } }
           $info = @"
-path=$exe
-size=$($item.Length)
-machine=$machineName
-magic=$magicName
-subsystem=$subName
-"@
+          path=$exe
+          size=$($item.Length)
+          machine=$machineName
+          magic=$magicName
+          subsystem=$subName
+          "@
           Set-Content -Encoding ascii -Path build-meta\pe-info.txt -Value $info
           Write-Host $info
           if ($machine -ne 0x8664) { throw "Expected AMD64, got $machineName" }
@@ -238,15 +238,15 @@ subsystem=$subName
             throw 'process did not exit after --exit-after'
           }
           $summary = @"
-smoke=ok
-pid=$($p.Id)
-exit=$($p.ExitCode)
-health_ok=true
-api_servers_has_test1=true
-page_title=true
-page_bytes=$($page.RawContentLength)
-loopback_listeners=$($listen.Count)
-"@
+          smoke=ok
+          pid=$($p.Id)
+          exit=$($p.ExitCode)
+          health_ok=true
+          api_servers_has_test1=true
+          page_title=true
+          page_bytes=$($page.RawContentLength)
+          loopback_listeners=$($listen.Count)
+          "@
           Set-Content -Encoding ascii -Path build-meta\smoke.txt -Value $summary
           Write-Host $summary
           Remove-Item -LiteralPath $data -Recurse -Force
