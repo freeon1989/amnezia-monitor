@@ -144,7 +144,13 @@ jobs:
           if missing:
               raise SystemExit("missing from archive: " + ", ".join(missing))
 
-          banned = [n for n in low if n.endswith(("servers.yaml", "servers.yaml.example", ".env", ".env.example"))]
+          # Match the file name only. "invoke.env" is a Python module, not a secrets file.
+          banned_names = {"servers.yaml", "servers.yaml.example", ".env", ".env.example"}
+          banned = []
+          for n in low:
+              base = n.rstrip("/").split("/")[-1]
+              if base in banned_names:
+                  banned.append(n)
           if banned:
               raise SystemExit("forbidden bundled files: " + ", ".join(banned))
 
