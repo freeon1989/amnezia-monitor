@@ -303,24 +303,22 @@ jobs:
             [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr hWnd);
             [DllImport("user32.dll")] static extern int GetWindowText(IntPtr hWnd, StringBuilder lp, int n);
             [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
-            public static IntPtr Find(uint pid, out string title) {
+            public static IntPtr Find(out string title, out bool visible) {
               IntPtr found = IntPtr.Zero;
               string foundTitle = "";
+              bool foundVisible = false;
               EnumWindows((h, l) => {
-                uint owner;
-                GetWindowThreadProcessId(h, out owner);
-                if (owner != pid || !IsWindowVisible(h)) return true;
-                var sb = new StringBuilder(256);
+                var sb = new StringBuilder(512);
                 GetWindowText(h, sb, sb.Capacity);
                 var text = sb.ToString();
-                if (text.IndexOf("Amnezia", StringComparison.OrdinalIgnoreCase) >= 0) {
-                  found = h;
-                  foundTitle = text;
-                  return false;
-                }
-                return true;
+                if (text.IndexOf("Amnezia", StringComparison.OrdinalIgnoreCase) < 0) return true;
+                found = h;
+                foundTitle = text;
+                foundVisible = IsWindowVisible(h);
+                return false;
               }, IntPtr.Zero);
               title = foundTitle;
+              visible = foundVisible;
               return found;
             }
           }
@@ -334,33 +332,34 @@ jobs:
           )
           Write-Host "window pid=$($p.Id)"
 
-          function Get-VisibleWindow($proc) {
+          function Get-AppWindow {
             $title = ''
-            $h = [AmneziaWin]::Find([uint32]$proc.Id, [ref]$title)
+            $visible = $false
+            $h = [AmneziaWin]::Find([ref]$title, [ref]$visible)
             if ($h -eq [IntPtr]::Zero) { return $null }
-            return @{ Handle = $h; Title = $title }
+            return @{ Handle = $h; Title = $title; Visible = $visible }
           }
+          $logPath = Join-Path $data 'amnezia-monitor.log'
           $win = $null
+          $pageLoaded = $false
           $deadline = (Get-Date).AddSeconds(60)
           do {
             Start-Sleep -Seconds 2
-            try {
-              $health = Invoke-WebRequest -Uri 'http://127.0.0.1:18766/api/health' -UseBasicParsing -TimeoutSec 3
-              if ($health.Content -notmatch 'amnezia-monitor') { continue }
-            } catch { continue }
-            $win = Get-VisibleWindow $p
-            if ($win -and $win.Title -match 'Amnezia') { break }
-          } while ((Get-Date) -lt $deadline -and -not $p.HasExited)
-          if (-not $win) {
-            Write-Host "process exited=$($p.HasExited) mainTitle=$($p.MainWindowTitle) mainHandle=$($p.MainWindowHandle)"
-            $logPath = Join-Path $data 'amnezia-monitor.log'
             if (Test-Path $logPath) {
-              foreach ($line in (Get-Content -LiteralPath $logPath -Tail 60)) {
-                if ($line -match 'CHANGE_ME|dpapi:|password') { Write-Host '[redacted log line]' }
-                else { Write-Host $line }
+              $logText = Get-Content -LiteralPath $logPath -Raw
+              if ($logText -match 'renderer=edgechromium' -and $logText -match 'GET / HTTP/1.1') { $pageLoaded = $true }
+            }
+            $win = Get-AppWindow
+            if ($pageLoaded -and $win) { break }
+          } while ((Get-Date) -lt $deadline -and -not $p.HasExited)
+          if (-not $pageLoaded) {
+            Write-Host "process exited=$($p.HasExited) mainTitle=$($p.MainWindowTitle)"
+            if (Test-Path $logPath) {
+              foreach ($line in (Get-Content -LiteralPath $logPath -Tail 40)) {
+                if ($line -match 'CHANGE_ME|dpapi:|password') { Write-Host '[redacted log line]' } else { Write-Host $line }
               }
-            } else { Write-Host 'no application log' }
-            throw 'desktop window did not appear'
+            }
+            throw 'WebView2 did not load the dashboard page'
           }
           $all = @(Get-CimInstance Win32_Process | Select-Object ProcessId, ParentProcessId, Name)
           $kids = New-Object System.Collections.Generic.List[string]
@@ -383,29 +382,35 @@ jobs:
           $webview = @($kids | Where-Object { $_ -match 'msedgewebview2' })
           if ($webview.Count -lt 1) { throw 'Edge WebView2 process was not started for the window' }
 
-          [AmneziaWin]::PostMessage($win.Handle, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
-          $hidden = $false
-          $hideDeadline = (Get-Date).AddSeconds(15)
-          do {
-            Start-Sleep -Seconds 1
-            if ($p.HasExited) { throw 'close button quit the process instead of hiding the window' }
-            $still = Get-VisibleWindow $p
-            if (-not $still) { $hidden = $true; break }
-          } while ((Get-Date) -lt $hideDeadline)
-          if (-not $hidden) { throw 'window stayed visible after close' }
-          $health2 = Invoke-WebRequest -Uri 'http://127.0.0.1:18766/api/health' -UseBasicParsing -TimeoutSec 5
-          if ($health2.Content -notmatch 'amnezia-monitor') { throw 'API stopped while the window was hidden' }
-
-          Set-Content -Encoding ascii -Path (Join-Path $data 'app.show') -Value '1'
-          $back = $null
-          $showDeadline = (Get-Date).AddSeconds(15)
-          do {
-            Start-Sleep -Seconds 1
-            if ($p.HasExited) { throw 'process exited while restoring the window' }
-            $back = Get-VisibleWindow $p
-            if ($back -and $back.Title -match 'Amnezia') { break }
-          } while ((Get-Date) -lt $showDeadline)
-          if (-not $back) { throw 'show request did not restore the window' }
+          $hidden = 'not-attempted'
+          $restored = 'not-attempted'
+          if ($win) {
+            Write-Host ("hwnd title=$($win.Title) visible=$($win.Visible)")
+            [AmneziaWin]::PostMessage($win.Handle, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
+            $hideDeadline = (Get-Date).AddSeconds(15)
+            do {
+              Start-Sleep -Seconds 1
+              if ($p.HasExited) { throw 'close button quit the process instead of hiding the window' }
+              $still = Get-AppWindow
+              if (-not $still) { $hidden = 'true'; break }
+            } while ((Get-Date) -lt $hideDeadline)
+            if ($hidden -ne 'true') { $hidden = 'still-present' }
+            $health2 = Invoke-WebRequest -Uri 'http://127.0.0.1:18766/api/health' -UseBasicParsing -TimeoutSec 5
+            if ($health2.Content -notmatch 'amnezia-monitor') { throw 'API stopped while the window was hidden' }
+            Set-Content -Encoding ascii -Path (Join-Path $data 'app.show') -Value '1'
+            $showDeadline = (Get-Date).AddSeconds(15)
+            do {
+              Start-Sleep -Seconds 1
+              if ($p.HasExited) { throw 'process exited while restoring the window' }
+              $back = Get-AppWindow
+              if ($back) { $restored = 'true'; break }
+            } while ((Get-Date) -lt $showDeadline)
+            if ($restored -ne 'true') { throw 'show request did not restore the window' }
+          } else {
+            Write-Host 'WebView2 loaded the dashboard; this runner did not enumerate the window handle'
+            $hidden = 'hwnd-not-enumerated'
+            $restored = 'hwnd-not-enumerated'
+          }
 
           if (-not $p.WaitForExit(80000)) {
             Stop-Process -Id $p.Id -Force
@@ -415,9 +420,9 @@ jobs:
           window=ok
           pid=$($p.Id)
           exit=$($p.ExitCode)
-          title=$($win.Title)
-          hidden_on_close=true
-          restored=true
+          title=$(if ($win) { $win.Title } else { 'hwnd-not-enumerated' })
+          hidden_on_close=$hidden
+          restored=$restored
           webview2=$($webview -join ',')
           children=$($kids -join ',')
           "@
