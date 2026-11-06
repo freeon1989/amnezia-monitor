@@ -1,4 +1,6 @@
-# Дополнительно для режима приложения (.exe): значок в трее
+# Дополнительно для режима приложения (.exe): значок в трее и окно WebView2 на Windows.
+# pythonnet ставится вместе с pywebview только на Windows.
 -r requirements.txt
 pystray>=0.19
 Pillow>=10.0
+pywebview>=6.1,<7

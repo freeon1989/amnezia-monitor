@@ -7,6 +7,7 @@ import logging
 import sys
 import tempfile
 import threading
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -17,6 +18,7 @@ logging.getLogger("paramiko").setLevel(logging.CRITICAL + 1)
 import amnezia_monitor as am  # noqa: E402
 import app_main  # noqa: E402
 import app_settings as st  # noqa: E402
+import app_window  # noqa: E402
 import dashboard  # noqa: E402
 import secrets_store  # noqa: E402
 
@@ -293,6 +295,73 @@ class AppMode(unittest.TestCase):
         self.assertEqual(cfg.servers, [])
         with self.assertRaises(am.ConfigError):
             am.load_config(str(d / "servers.yaml"))          # CLI по-прежнему требует серверы
+
+    def test_windows_window_policy_and_second_launch(self):
+        self.assertTrue(app_window.wants_desktop_window(False, "win32"))
+        self.assertFalse(app_window.wants_desktop_window(True, "win32"))
+        self.assertFalse(app_window.wants_desktop_window(False, "linux"))
+
+        d = Path(tempfile.mkdtemp())
+        lock = app_main.InstanceLock(d)
+        self.assertFalse(lock.consume_show_request())
+        lock.request_show()
+        self.assertTrue(lock.consume_show_request())
+        self.assertFalse(lock.consume_show_request())
+
+        class Live:
+            def running_url(self):
+                return "http://127.0.0.1:9/"
+
+            def __init__(self):
+                self.asked = False
+
+            def request_show(self):
+                self.asked = True
+
+        live, opened = Live(), []
+        rc = app_main.activate_existing(live, no_browser=False, window_mode=True, open_external=opened.append)
+        self.assertEqual(rc, 0)
+        self.assertTrue(live.asked)
+        self.assertEqual(opened, [])
+        rc = app_main.activate_existing(live, no_browser=False, window_mode=False, open_external=opened.append)
+        self.assertEqual(opened, ["http://127.0.0.1:9/"])
+        opened.clear()
+        rc = app_main.activate_existing(live, no_browser=True, window_mode=False, open_external=opened.append)
+        self.assertEqual(rc, 0)
+        self.assertEqual(opened, [])
+
+    def test_close_hides_to_tray_and_quit_allows_close(self):
+        calls = []
+
+        class FakeWindow:
+            def hide(self):
+                calls.append("hide")
+
+            def show(self):
+                calls.append("show")
+
+            def restore(self):
+                calls.append("restore")
+
+        ui = app_window.DesktopWindow(Path(tempfile.mkdtemp()), presenter=lambda text: calls.append(text))
+        ui.window = FakeWindow()
+        ui.tray_running = True
+        self.assertIs(ui.on_closing(), False)
+        time.sleep(0.2)
+        self.assertIn("hide", calls)
+        ui.show()
+        self.assertEqual(calls[-2:], ["show", "restore"])
+        ui.quitting = True
+        self.assertIsNone(ui.on_closing())
+
+    def test_missing_webview2_does_not_open_a_browser(self):
+        notes = []
+        ui = app_window.DesktopWindow(Path(tempfile.mkdtemp()), presenter=notes.append)
+        with mock.patch.object(app_window, "webview2_runtime_installed", return_value=False):
+            self.assertFalse(ui.run("http://127.0.0.1:9/"))
+        self.assertEqual(ui.failure, "webview2-missing")
+        self.assertIn("WebView2", notes[0])
+        self.assertIn("не открывается", notes[0])
 
     def test_tray_icon_image(self):
         try:
