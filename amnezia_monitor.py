@@ -976,7 +976,7 @@ def main(argv=None) -> int:
     dp.add_argument("--port", type=int, default=8765)
     dp.add_argument("--with-monitor", action="store_true", help="заодно опрашивать серверы (как run) в фоне")
     dp.add_argument("--export-html", metavar="FILE", help="сохранить статичный HTML с данными и выйти")
-    app = sub.add_parser("app", help="режим приложения: опрос + панель + настройки, открывает браузер")
+    app = sub.add_parser("app", help="режим приложения: опрос + панель + настройки; на Windows — своё окно")
     import app_main
     app_main.add_args(app)
     args = ap.parse_args(argv)

@@ -31,6 +31,7 @@ if not getattr(sys, "frozen", False):
 
 import amnezia_monitor as am   # noqa: E402
 import app_settings            # noqa: E402
+import app_window              # noqa: E402
 import dashboard               # noqa: E402
 
 log = logging.getLogger("amnezia_monitor.app")
@@ -94,6 +95,24 @@ class InstanceLock:
 
     def write_port(self, port: int):
         self.port_file.write_text(str(port), encoding="ascii")
+
+    @property
+    def show_path(self) -> Path:
+        return self.path.parent / "app.show"
+
+    def request_show(self) -> None:
+        """Второй запуск просит уже работающую копию показать своё окно."""
+        self.show_path.write_text("1", encoding="ascii")
+
+    def consume_show_request(self) -> bool:
+        path = self.show_path
+        try:
+            if not path.exists():
+                return False
+            path.unlink()
+            return True
+        except OSError:
+            return False
 
     def running_url(self):
         try:
@@ -204,24 +223,40 @@ def open_folder(path: Path):
         log.error("Не удалось открыть папку: %s", e)
 
 
-def run_tray(url: str, data_dir: Path, quit_cb, stop: threading.Event) -> bool:
-    """Значок в трее. Возвращает False, если pystray недоступен (тогда — консольный режим)."""
+def run_tray(url: str, data_dir: Path, quit_cb, stop: threading.Event, on_open=None, block: bool = True):
+    """Значок в трее. block=False запускает его в фоне и возвращает icon (или None)."""
     try:
         import pystray
     except Exception as e:
         log.warning("Значок в трее недоступен (%s) — работаю в консольном режиме", type(e).__name__)
-        return False
+        return None if not block else False
+
+    def open_panel():
+        if on_open is not None:
+            on_open()
+        else:
+            webbrowser.open(url)
+
     icon = pystray.Icon(APP_NAME, make_icon_image(), "Amnezia Monitor — мониторинг VPN", menu=pystray.Menu(
-        pystray.MenuItem("Открыть панель", lambda: webbrowser.open(url), default=True),
+        pystray.MenuItem("Открыть панель", lambda: open_panel(), default=True),
         pystray.MenuItem("Папка с данными", lambda: open_folder(data_dir)),
         pystray.Menu.SEPARATOR,
         pystray.MenuItem("Выход", lambda: quit_cb()),
     ))
+
+    def _run():
+        try:
+            icon.run()
+        except Exception as e:
+            log.warning("Трей не запустился (%s)", type(e).__name__)
+
+    if not block:
+        threading.Thread(target=_run, name="tray", daemon=True).start()
+        return icon
     threading.Thread(target=lambda: (stop.wait(), icon.stop()), daemon=True).start()
     try:
-        icon.run()
-    except Exception as e:
-        log.warning("Трей не запустился (%s) — консольный режим", type(e).__name__)
+        _run()
+    except Exception:
         return False
     return True
 
@@ -240,10 +275,38 @@ def bind_server(make, preferred: int):
 def add_args(p: argparse.ArgumentParser):
     p.add_argument("--port", type=int, default=DEFAULT_PORT, help="порт панели (если занят — любой свободный)")
     p.add_argument("--data-dir", help="папка данных (по умолчанию %%APPDATA%%\\AmneziaMonitor)")
-    p.add_argument("--no-browser", action="store_true", help="не открывать браузер")
+    p.add_argument("--no-browser", action="store_true",
+                   help="не открывать окно и не открывать браузер (фоновый режим)")
     p.add_argument("--no-tray", action="store_true", help="без значка в трее (консольный режим)")
     p.add_argument("--exit-after", type=float, help=argparse.SUPPRESS)   # для тестов/проверки
     p.add_argument("--verbose", "-v", action="store_true")
+
+
+def activate_existing(lock: InstanceLock, *, no_browser: bool, window_mode: bool, open_external) -> int:
+    """Вторая копия не создаёт процесс. В режиме окна просит первую показать его, без браузера."""
+    url = lock.running_url()
+    if not url:
+        say("Похоже, программа уже запущена, но не отвечает. Попробуйте ещё раз через минуту.")
+        return 1
+    say(f"Amnezia Monitor уже запущен: {url}")
+    if window_mode:
+        lock.request_show()
+        return 0
+    if not no_browser:
+        open_external(url)
+    return 0
+
+
+def _wait_until_stopped(stop: threading.Event) -> None:
+    say("=" * 64)
+    say(" Amnezia Monitor работает")
+    say(" Чтобы остановить — закройте это окно или нажмите Ctrl+C.")
+    say("=" * 64)
+    try:
+        while not stop.wait(0.5):
+            pass
+    except KeyboardInterrupt:
+        pass
 
 
 def run(args) -> int:
@@ -256,15 +319,10 @@ def run(args) -> int:
     setup_logging(data_dir, args.verbose, console=args.no_tray)
 
     lock = InstanceLock(data_dir)
+    window_mode = app_window.wants_desktop_window(bool(args.no_browser))
     if not lock.acquire():
-        url = lock.running_url()
-        if url:
-            say(f"Amnezia Monitor уже запущен: {url}")
-            if not args.no_browser:
-                webbrowser.open(url)
-            return 0
-        say("Похоже, программа уже запущена, но не отвечает. Попробуйте ещё раз через минуту.")
-        return 1
+        return activate_existing(lock, no_browser=bool(args.no_browser), window_mode=window_mode,
+                                 open_external=webbrowser.open)
 
     config_path = data_dir / "servers.yaml"
     db_path = data_dir / "amnezia_monitor.db"
@@ -283,11 +341,26 @@ def run(args) -> int:
 
     stop, wake = threading.Event(), threading.Event()
     httpd_box = {}
+    ui = app_window.DesktopWindow(data_dir) if window_mode else None
+    tray_box = {}
+    quit_state = {"done": False}
 
     def quit_app():
         log.info("Остановка по запросу пользователя")
         stop.set()
         wake.set()
+        if ui is not None:
+            ui.quitting = True
+            ui.destroy()
+        icon = tray_box.get("icon")
+        if icon is not None:
+            try:
+                icon.stop()
+            except Exception:
+                log.exception("Не удалось убрать значок из трея")
+        if quit_state["done"]:
+            return
+        quit_state["done"] = True
         if httpd_box.get("httpd"):
             threading.Thread(target=httpd_box["httpd"].shutdown, daemon=True).start()
 
@@ -308,30 +381,45 @@ def run(args) -> int:
         threading.Thread(target=monitor_loop, args=(holder, stop, wake), name="monitor", daemon=True).start()
     log.warning("Amnezia Monitor запущен: %s (данные: %s)", url, data_dir)
     open_url = url + ("#settings" if not holder.get().servers else "")
-    if not args.no_browser:
-        threading.Timer(0.5, lambda: webbrowser.open(open_url)).start()
     if args.exit_after:
         threading.Timer(args.exit_after, quit_app).start()
 
-    tray_ok = False
-    if not args.no_tray:
-        tray_ok = run_tray(url, data_dir, quit_app, stop)
-    if not tray_ok:
-        say("=" * 64)
-        say(" Amnezia Monitor работает" + (" (ДЕМО-данные)" if demo else ""))
-        say(f" Панель:  {url}")
-        say(f" Данные:  {data_dir}")
-        say(" Чтобы остановить — закройте это окно или нажмите Ctrl+C.")
-        say("=" * 64)
-        try:
-            while not stop.wait(0.5):
+    if window_mode:
+        if not args.no_tray:
+            tray_box["icon"] = run_tray(url, data_dir, quit_app, stop, on_open=ui.show, block=False)
+            ui.tray_running = tray_box.get("icon") is not None
+        ui.watch_show_requests(lock, stop)
+        opened = ui.run(open_url)
+        if not opened and not stop.is_set():
+            if ui.tray_running:
+                _wait_until_stopped(stop)
+            else:
+                quit_app()
+                httpd.server_close()
+                lock.release()
+                return 3
+    else:
+        if not args.no_browser:
+            threading.Timer(0.5, lambda: webbrowser.open(open_url)).start()
+        tray_ok = False
+        if not args.no_tray:
+            tray_ok = bool(run_tray(url, data_dir, quit_app, stop))
+        if not tray_ok:
+            say("=" * 64)
+            say(" Amnezia Monitor работает" + (" (ДЕМО-данные)" if demo else ""))
+            say(f" Панель:  {url}")
+            say(f" Данные:  {data_dir}")
+            say(" Чтобы остановить — закройте это окно или нажмите Ctrl+C.")
+            say("=" * 64)
+            try:
+                while not stop.wait(0.5):
+                    pass
+            except KeyboardInterrupt:
                 pass
-        except KeyboardInterrupt:
-            pass
     quit_app()
     httpd.server_close()
     lock.release()
-    return 0
+    return 0 if not (ui and ui.failure) else 3
 
 
 def main(argv=None) -> int:

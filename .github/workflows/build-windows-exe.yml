@@ -139,6 +139,9 @@ jobs:
               "pil",
               "six",
               "_ssl",
+              "app_window",
+              "edgechromium",
+              "webview2loader",
           ]
           missing = [r for r in required if not has(r)]
           if missing:
@@ -257,12 +260,171 @@ jobs:
           Write-Host $summary
           Remove-Item -LiteralPath $data -Recurse -Force
 
+      - name: Install WebView2 runtime if the runner does not have it
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          function Get-WebView2Version {
+            $keys = @(
+              'HKLM:\SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}',
+              'HKLM:\SOFTWARE\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}',
+              'HKCU:\SOFTWARE\Microsoft\EdgeUpdate\Clients\{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}'
+            )
+            foreach ($k in $keys) {
+              if (Test-Path $k) {
+                $pv = (Get-ItemProperty -LiteralPath $k -ErrorAction SilentlyContinue).pv
+                if ($pv -and $pv -ne '0.0.0.0') { return $pv }
+              }
+            }
+            return $null
+          }
+          $have = Get-WebView2Version
+          if ($have) { Write-Host "WebView2 already installed: $have"; exit 0 }
+          $setup = Join-Path $env:RUNNER_TEMP 'MicrosoftEdgeWebview2Setup.exe'
+          Invoke-WebRequest -Uri 'https://go.microsoft.com/fwlink/?linkid=2124703' -OutFile $setup
+          $proc = Start-Process -FilePath $setup -ArgumentList '/silent','/install' -PassThru -Wait
+          Write-Host "WebView2 installer exit $($proc.ExitCode)"
+          $have = Get-WebView2Version
+          if (-not $have) { throw 'WebView2 Runtime is still missing after install' }
+          Write-Host "WebView2 installed: $have"
+
+      - name: Smoke-test the desktop window
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Add-Type -TypeDefinition @"
+          using System;
+          using System.Text;
+          using System.Runtime.InteropServices;
+          public static class AmneziaWin {
+            delegate bool EnumProc(IntPtr hWnd, IntPtr lParam);
+            [DllImport("user32.dll")] static extern bool EnumWindows(EnumProc lpEnumFunc, IntPtr lParam);
+            [DllImport("user32.dll")] static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint pid);
+            [DllImport("user32.dll")] static extern bool IsWindowVisible(IntPtr hWnd);
+            [DllImport("user32.dll")] static extern int GetWindowText(IntPtr hWnd, StringBuilder lp, int n);
+            [DllImport("user32.dll")] public static extern bool PostMessage(IntPtr hWnd, uint msg, IntPtr wParam, IntPtr lParam);
+            public static IntPtr Find(uint pid, out string title) {
+              IntPtr found = IntPtr.Zero;
+              string foundTitle = "";
+              EnumWindows((h, l) => {
+                uint owner;
+                GetWindowThreadProcessId(h, out owner);
+                if (owner != pid || !IsWindowVisible(h)) return true;
+                var sb = new StringBuilder(256);
+                GetWindowText(h, sb, sb.Capacity);
+                var text = sb.ToString();
+                if (text.IndexOf("Amnezia", StringComparison.OrdinalIgnoreCase) >= 0) {
+                  found = h;
+                  foundTitle = text;
+                  return false;
+                }
+                return true;
+              }, IntPtr.Zero);
+              title = foundTitle;
+              return found;
+            }
+          }
+          "@
+          $exe = (Resolve-Path 'dist\AmneziaMonitor.exe').Path
+          $data = 'C:\amnezia-window'
+          if (Test-Path $data) { Remove-Item -LiteralPath $data -Recurse -Force }
+          New-Item -ItemType Directory -Path $data | Out-Null
+          $p = Start-Process -FilePath $exe -WorkingDirectory (Split-Path $exe) -PassThru -ArgumentList @(
+            '--demo', '--exit-after', '70', '--port', '18766', '--data-dir', $data, '-v'
+          )
+          Write-Host "window pid=$($p.Id)"
+
+          function Get-VisibleWindow($proc) {
+            $title = ''
+            $h = [AmneziaWin]::Find([uint32]$proc.Id, [ref]$title)
+            if ($h -eq [IntPtr]::Zero) { return $null }
+            return @{ Handle = $h; Title = $title }
+          }
+          $win = $null
+          $deadline = (Get-Date).AddSeconds(60)
+          do {
+            Start-Sleep -Seconds 2
+            try {
+              $health = Invoke-WebRequest -Uri 'http://127.0.0.1:18766/api/health' -UseBasicParsing -TimeoutSec 3
+              if ($health.Content -notmatch 'amnezia-monitor') { continue }
+            } catch { continue }
+            $win = Get-VisibleWindow $p
+            if ($win -and $win.Title -match 'Amnezia') { break }
+          } while ((Get-Date) -lt $deadline -and -not $p.HasExited)
+          if (-not $win) {
+            Write-Host "process exited=$($p.HasExited) title=$($p.MainWindowTitle)"
+            throw 'desktop window did not appear'
+          }
+          $all = @(Get-CimInstance Win32_Process | Select-Object ProcessId, ParentProcessId, Name)
+          $kids = New-Object System.Collections.Generic.List[string]
+          $queue = New-Object System.Collections.Generic.Queue[int]
+          $queue.Enqueue([int]$p.Id)
+          $seen = @{}
+          while ($queue.Count -gt 0) {
+            $cur = $queue.Dequeue()
+            foreach ($row in $all) {
+              if ($row.ParentProcessId -eq $cur -and -not $seen.ContainsKey([int]$row.ProcessId)) {
+                $seen[[int]$row.ProcessId] = $true
+                $kids.Add([string]$row.Name)
+                $queue.Enqueue([int]$row.ProcessId)
+              }
+            }
+          }
+          Write-Host ("children=" + ($kids -join ','))
+          $bad = @($kids | Where-Object { $_ -match '^(chrome|firefox|iexplore|msedge)\.exe$' })
+          if ($bad.Count -gt 0) { throw ("external browser started: " + ($bad -join ',')) }
+          $webview = @($kids | Where-Object { $_ -match 'msedgewebview2' })
+          if ($webview.Count -lt 1) { throw 'Edge WebView2 process was not started for the window' }
+
+          [AmneziaWin]::PostMessage($win.Handle, 0x0010, [IntPtr]::Zero, [IntPtr]::Zero) | Out-Null
+          $hidden = $false
+          $hideDeadline = (Get-Date).AddSeconds(15)
+          do {
+            Start-Sleep -Seconds 1
+            if ($p.HasExited) { throw 'close button quit the process instead of hiding the window' }
+            $still = Get-VisibleWindow $p
+            if (-not $still) { $hidden = $true; break }
+          } while ((Get-Date) -lt $hideDeadline)
+          if (-not $hidden) { throw 'window stayed visible after close' }
+          $health2 = Invoke-WebRequest -Uri 'http://127.0.0.1:18766/api/health' -UseBasicParsing -TimeoutSec 5
+          if ($health2.Content -notmatch 'amnezia-monitor') { throw 'API stopped while the window was hidden' }
+
+          Set-Content -Encoding ascii -Path (Join-Path $data 'app.show') -Value '1'
+          $back = $null
+          $showDeadline = (Get-Date).AddSeconds(15)
+          do {
+            Start-Sleep -Seconds 1
+            if ($p.HasExited) { throw 'process exited while restoring the window' }
+            $back = Get-VisibleWindow $p
+            if ($back -and $back.Title -match 'Amnezia') { break }
+          } while ((Get-Date) -lt $showDeadline)
+          if (-not $back) { throw 'show request did not restore the window' }
+
+          if (-not $p.WaitForExit(80000)) {
+            Stop-Process -Id $p.Id -Force
+            throw 'windowed process did not exit after --exit-after'
+          }
+          $summary = @"
+          window=ok
+          pid=$($p.Id)
+          exit=$($p.ExitCode)
+          title=$($win.Title)
+          hidden_on_close=true
+          restored=true
+          webview2=$($webview -join ',')
+          children=$($kids -join ',')
+          "@
+          Set-Content -Encoding ascii -Path build-meta\window-smoke.txt -Value $summary
+          Write-Host $summary
+          if ($p.ExitCode -ne 0) { throw "windowed process exit code $($p.ExitCode)" }
+          Remove-Item -LiteralPath $data -Recurse -Force
+
       - name: Package zip
         shell: pwsh
         run: |
           $ErrorActionPreference = 'Stop'
           $stage = Join-Path $env:RUNNER_TEMP 'amnezia-pkg'
-          $root = Join-Path $stage 'AmneziaMonitor-win-x64'
+          $root = Join-Path $stage 'AmneziaMonitor-win-x64-window'
           if (Test-Path $stage) { Remove-Item -Recurse -Force $stage }
           New-Item -ItemType Directory -Path $root | Out-Null
           Copy-Item dist\AmneziaMonitor.exe (Join-Path $root 'AmneziaMonitor.exe')
@@ -272,9 +434,12 @@ jobs:
           Amnezia Monitor — Windows x64
 
           Запуск: двойной щелчок по AmneziaMonitor.exe.
-          Откроется браузер с панелью (http://127.0.0.1:8765, либо следующий свободный порт).
-          Значок в трее: «Открыть панель», «Папка с данными», «Выход».
-          Повторный запуск не создаёт вторую копию, а открывает уже работающую панель.
+          Панель открывается в своём окне программы, а не в браузере.
+          Крестик окна прячет его в трей, мониторинг при этом продолжается.
+          Значок в трее: «Открыть панель» снова показывает то же окно, «Папка с данными», «Выход».
+          Повторный запуск не создаёт вторую копию, а показывает уже открытое окно.
+          Нужен Microsoft Edge WebView2 Runtime (он уже есть в Windows 11 и в новых Windows 10).
+          Если его нет, программа покажет сообщение и не откроет внешний браузер.
 
           Настройки и база: %APPDATA%\AmneziaMonitor\
             servers.yaml, amnezia_monitor.db, amnezia-monitor.log
@@ -291,11 +456,11 @@ jobs:
           В этом архиве нет servers.yaml, .env, личных адресов серверов и паролей.
           '@
           [System.IO.File]::WriteAllText((Join-Path $root 'START.txt'), ($start.Trim() -replace "`n", "`r`n") + "`r`n")
-          $zip = Join-Path (Get-Location) 'dist\AmneziaMonitor-win-x64.zip'
+          $zip = Join-Path (Get-Location) 'dist\AmneziaMonitor-win-x64-window.zip'
           if (Test-Path $zip) { Remove-Item -Force $zip }
           Compress-Archive -Path $root -DestinationPath $zip
           $zipHash = (Get-FileHash -Algorithm SHA256 $zip).Hash.ToLower()
-          Set-Content -Encoding ascii -Path build-meta\zip-sha256.txt -Value "$zipHash  AmneziaMonitor-win-x64.zip"
+          Set-Content -Encoding ascii -Path build-meta\zip-sha256.txt -Value "$zipHash  AmneziaMonitor-win-x64-window.zip"
           Set-Content -Encoding ascii -Path build-meta\exe-sha256.txt -Value "$hash  AmneziaMonitor.exe"
           Write-Host "exe $hash"
           Write-Host "zip $zipHash"
@@ -303,9 +468,9 @@ jobs:
       - name: Upload distributable
         uses: actions/upload-artifact@v4
         with:
-          name: AmneziaMonitor-win-x64
+          name: AmneziaMonitor-win-x64-window
           path: |
-            dist/AmneziaMonitor-win-x64.zip
+            dist/AmneziaMonitor-win-x64-window.zip
             build-meta/**
           if-no-files-found: error
           retention-days: 14
