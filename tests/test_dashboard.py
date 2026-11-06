@@ -44,13 +44,14 @@ class DNSParsing(unittest.TestCase):
         store = am.Store(":memory:")
         peers = [{"pubkey": "K1=", "allowed_ips": "10.8.1.2/32", "client": "Телефон", "online": True,
                   "handshake": int(NOW) - 10, "rx": 1, "tx": 2, "endpoint": None, "container": "amnezia-awg"}]
-        log1 = "[1] u info: 10.8.1.2 a.example.com. A IN\n[2] u info: 10.8.1.9 b.example.org. A IN\n"
+        log1 = "[%d] u info: 10.8.1.2 a.example.com. A IN\n[%d] u info: 10.8.1.9 b.example.org. A IN\n" % (
+            int(NOW) - 10, int(NOW) - 5)
         r = am.PollResult(server="s", ts=NOW, ssh_ok=True, reachable=True, tcp_ms=1, peers=peers)
         am.attach_dns(r, log1)
         am.process(store, cfg, r)
         # второй опрос: tail вернул старые строки + одну новую — старые не должны задвоиться
         r2 = am.PollResult(server="s", ts=NOW + 60, ssh_ok=True, reachable=True, tcp_ms=1, peers=peers)
-        am.attach_dns(r2, log1 + "[3] u info: 10.8.1.2 c.example.com. A IN\n")
+        am.attach_dns(r2, log1 + "[%d] u info: 10.8.1.2 c.example.com. A IN\n" % (int(NOW) + 50))
         am.process(store, cfg, r2)
         rows = store.db.execute("SELECT client, site FROM dns ORDER BY id").fetchall()
         self.assertEqual([(x[0], x[1]) for x in rows],
@@ -60,6 +61,53 @@ class DNSParsing(unittest.TestCase):
         r = am.PollResult(server="s", ts=NOW)
         am.attach_dns(r, "   \n")
         self.assertEqual(r.dns_status, "no_log")
+
+    def test_epoch_unbound_line(self):
+        e = am.parse_dns_log("[1793965136] unbound[1:0] info: 10.8.1.2 example.com. A IN\n")
+        self.assertEqual(len(e), 1)
+        self.assertEqual(e[0]["ts"], 1793965136.0)
+        self.assertEqual(e[0]["ip"], "10.8.1.2")
+        self.assertEqual(e[0]["domain"], "example.com")
+        self.assertEqual(e[0]["qtype"], "A")
+
+    def test_read_paths_statuses_and_rotation(self):
+        cmd = am.READ_ONLY_COMMANDS["dns_log"].format(docker="docker", c="amnezia-dns", n=3000)
+        self.assertIn("/opt/unbound/etc/unbound/unbound.log", cmd)
+        self.assertIn("/opt/unbound/etc/unbound/log-archive/unbound-*.log", cmd)
+        self.assertIn("/opt/adguardhome/work/data/querylog.json", cmd)
+        self.assertTrue(am._ALLOWED_RE.match(cmd))
+        self.assertLessEqual(am.DNS_READ_BYTES * (1 + am.DNS_ARCHIVE_FILES), 50 * 1024 * 1024)
+        now = 1_793_965_200.0
+        missing = "AMNEZIA_DNS_ACTIVE_MISSING\n"
+        self.assertEqual(am.interpret_dns_capture(missing, 0, now)["status"], "no_log")
+        self.assertEqual(am.interpret_dns_capture("", 1, now)["status"], "unreadable")
+        self.assertEqual(am.interpret_dns_capture("\n", 0, now)["status"], "empty")
+        self.assertEqual(am.interpret_dns_capture("AMNEZIA_DNS_ACTIVE_MISSING\nAMNEZIA_DNS_FILE\n", 0, now)["status"], "empty")
+        garbage = "AMNEZIA_DNS_FILE\nthis is not a dns line\n"
+        self.assertEqual(am.interpret_dns_capture(garbage, 0, now)["status"], "unsupported")
+        fresh = "[1793965136] unbound[1:0] info: 10.8.1.2 example.com. A IN"
+        old = "[1793000000] unbound[1:0] info: 10.8.1.2 old.example.net. A IN"
+        cap = "AMNEZIA_DNS_FILE\n%s\n%s\n" % (old, fresh)
+        info = am.interpret_dns_capture(cap, 0, now)
+        self.assertEqual(info["status"], "ok")
+        self.assertEqual([x["domain"] for x in info["entries"]], ["example.com"])
+        self.assertLess(info["coverage_sec"], 24 * 3600)
+        self.assertIn("не достраивает", info["note"])
+        # повторное чтение архива не удваивает уже сохранённые строки
+        cfg = am.Config(servers=[am.ServerCfg(name="s", host="203.0.113.1")])
+        store = am.Store(":memory:")
+        peers = [{"pubkey": "K1=", "allowed_ips": "10.8.1.2/32", "client": "Телефон", "online": True,
+                  "handshake": int(now) - 10, "rx": 1, "tx": 2, "endpoint": None, "container": "amnezia-awg"}]
+        r = am.PollResult(server="s", ts=now, ssh_ok=True, reachable=True, tcp_ms=1, peers=peers)
+        am.apply_dns_result(r, info)
+        am.process(store, cfg, r)
+        r2 = am.PollResult(server="s", ts=now + 60, ssh_ok=True, reachable=True, tcp_ms=1, peers=peers)
+        again = am.interpret_dns_capture(cap + "[1793965180] unbound[1:0] info: 10.8.1.2 news.example.org. A IN\n",
+                                         0, now + 60)
+        am.apply_dns_result(r2, again)
+        am.process(store, cfg, r2)
+        rows = store.db.execute("SELECT domain FROM dns ORDER BY ts").fetchall()
+        self.assertEqual([x[0] for x in rows], ["example.com", "news.example.org"])
 
     def test_whitelist_dns(self):
         c = am.READ_ONLY_COMMANDS["dns_log"].format(docker="docker", c="amnezia-dns", n=3000)
@@ -104,7 +152,7 @@ class Aggregation(unittest.TestCase):
         self.assertTrue(any("xray" in e["message"] for e in d1["events"]))
         d2 = api.api_server(store, cfg, "test2", now)
         self.assertEqual(d2["dns"]["status"], "no_log")
-        self.assertIn("log-queries", d2["dns"]["note"])
+        self.assertIn("не найден", d2["dns"]["note"])
         d3 = api.api_server(store, cfg, "test3", now)
         self.assertEqual(d3["current"]["status"], "down")
         self.assertTrue(d3["current"]["stale"])

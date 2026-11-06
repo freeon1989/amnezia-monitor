@@ -9,10 +9,11 @@ from typing import Optional
 DNS_NOTES = {
     "no_container": "На сервере нет контейнера amnezia-dns, поэтому сайты определить нельзя. "
                     "Сам VPN (WireGuard/AmneziaWG) видит только объём трафика, а не адреса сайтов.",
-    "no_log": "Агент ничего не меняет на серверах, поэтому включить его "
-              "можете только вы сами: в Unbound — параметр «log-queries: yes» (с выводом в файл или в лог "
-              "контейнера), в AdGuard Home — «Журнал запросов» в настройках. Учтите: это хранение истории "
-              "посещений ваших пользователей — предупредите их.",
+    "no_log": "Журнал DNS на сервере не найден: нет файла Unbound и пустой вывод docker logs. "
+              "Программа ничего на сервере не включает.",
+    "empty": "Журнал DNS на сервере есть, но запросов в прочитанном окне нет.",
+    "unreadable": "Журнал DNS есть, но прочитать его не удалось. Это не значит, что он выключен.",
+    "unsupported": "Журнал DNS прочитан, но его формат не распознан.",
     "nodata": "Данных пока нет — дождитесь первого опроса.",
 }
 
@@ -166,7 +167,8 @@ def api_server(store, cfg, name: str, now: Optional[float] = None, hours: float 
     # --- DNS
     st = store.get_state(f"srv:{name}", {}) or {}
     dns_status = st.get("dns_status", "no_container")
-    dns = {"status": dns_status, "note": DNS_NOTES.get(dns_status)}
+    dns = {"status": dns_status, "note": st.get("dns_note") or DNS_NOTES.get(dns_status),
+           "coverage_hours": None}
     if dns_status == "ok" or db.execute("SELECT 1 FROM dns WHERE server=? AND ts>=? LIMIT 1", (name, since)).fetchone():
         top = db.execute("SELECT site, COUNT(*) n FROM dns WHERE server=? AND ts>=? GROUP BY site "
                          "ORDER BY n DESC LIMIT 12", (name, since)).fetchall()
@@ -176,7 +178,15 @@ def api_server(store, cfg, name: str, now: Optional[float] = None, hours: float 
             if len(per[x["client"]]) < 8:
                 per[x["client"]].append({"site": x["site"], "n": x["n"]})
         cnt = db.execute("SELECT COUNT(*) FROM dns WHERE server=? AND ts>=?", (name, since)).fetchone()[0]
-        dns.update({"status": "ok", "note": None, "queries": cnt,
+        span = db.execute("SELECT MIN(ts) a, MAX(ts) b FROM dns WHERE server=? AND ts>=?",
+                          (name, since)).fetchone()
+        reach = (now - span["a"]) if span and span["a"] is not None else None
+        coverage_hours = round(reach / 3600.0, 1) if reach is not None else None
+        note = None
+        if reach is not None and reach < 23 * 3600:
+            note = ("Показаны фактические %.1f ч из 24. Более ранних записей в журнале сервера нет, "
+                    "программа их не достраивает." % coverage_hours)
+        dns.update({"status": "ok", "note": note, "queries": cnt, "coverage_hours": coverage_hours,
                     "top": [{"site": x["site"], "n": x["n"]} for x in top],
                     "per_user": [{"client": k, "total": sum(i["n"] for i in v), "top": v} for k, v in per.items()]})
         dns["per_user"].sort(key=lambda u: -u["total"])

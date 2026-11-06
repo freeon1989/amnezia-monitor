@@ -436,7 +436,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $stage = Join-Path $env:RUNNER_TEMP 'amnezia-pkg'
-          $root = Join-Path $stage 'AmneziaMonitor-win-x64-window'
+          $root = Join-Path $stage 'AmneziaMonitor-win-x64-dns'
           if (Test-Path $stage) { Remove-Item -Recurse -Force $stage }
           New-Item -ItemType Directory -Path $root | Out-Null
           Copy-Item dist\AmneziaMonitor.exe (Join-Path $root 'AmneziaMonitor.exe')
@@ -452,6 +452,7 @@ jobs:
           Повторный запуск не создаёт вторую копию, а показывает уже открытое окно.
           Нужен Microsoft Edge WebView2 Runtime (он уже есть в Windows 11 и в новых Windows 10).
           Если его нет, программа покажет сообщение и не откроет внешний браузер.
+          Раздел «Сайты» только читает уже ведущийся журнал Unbound в контейнере amnezia-dns.
 
           Настройки и база: %APPDATA%\AmneziaMonitor\
             servers.yaml, amnezia_monitor.db, amnezia-monitor.log
@@ -468,11 +469,11 @@ jobs:
           В этом архиве нет servers.yaml, .env, личных адресов серверов и паролей.
           '@
           [System.IO.File]::WriteAllText((Join-Path $root 'START.txt'), ($start.Trim() -replace "`n", "`r`n") + "`r`n")
-          $zip = Join-Path (Get-Location) 'dist\AmneziaMonitor-win-x64-window.zip'
+          $zip = Join-Path (Get-Location) 'dist\AmneziaMonitor-win-x64-dns.zip'
           if (Test-Path $zip) { Remove-Item -Force $zip }
           Compress-Archive -Path $root -DestinationPath $zip
           $zipHash = (Get-FileHash -Algorithm SHA256 $zip).Hash.ToLower()
-          Set-Content -Encoding ascii -Path build-meta\zip-sha256.txt -Value "$zipHash  AmneziaMonitor-win-x64-window.zip"
+          Set-Content -Encoding ascii -Path build-meta\zip-sha256.txt -Value "$zipHash  AmneziaMonitor-win-x64-dns.zip"
           Set-Content -Encoding ascii -Path build-meta\exe-sha256.txt -Value "$hash  AmneziaMonitor.exe"
           Write-Host "exe $hash"
           Write-Host "zip $zipHash"
@@ -480,9 +481,9 @@ jobs:
       - name: Upload distributable
         uses: actions/upload-artifact@v4
         with:
-          name: AmneziaMonitor-win-x64-window
+          name: AmneziaMonitor-win-x64-dns
           path: |
-            dist/AmneziaMonitor-win-x64-window.zip
+            dist/AmneziaMonitor-win-x64-dns.zip
             build-meta/**
           if-no-files-found: error
           retention-days: 14

@@ -286,16 +286,23 @@ function renderDetail(){
 
 function renderDNS(){
   const n=detail.dns||{};
-  if(n.status!=="ok"){ $("dnsq").textContent=""; $("dns").innerHTML=`<div class="note"><b>${n.status==="no_log"?"DNS-журнал не включён на сервере.":"Сайты недоступны."}</b><br>${esc(n.note||"")}</div>
+  const head=[...document.querySelectorAll("h3 span")].find(el=>el.textContent.startsWith("Сайты (по DNS"));
+  if(head){
+    const short=n.status==="ok" && n.coverage_hours!=null && n.coverage_hours<23;
+    head.textContent = short? `Сайты (по DNS-запросам, ${n.coverage_hours} ч из 24)` : "Сайты (по DNS-запросам, 24 ч)";
+  }
+  const titles={no_log:"DNS-журнал не включён на сервере.", empty:"В журнале DNS нет запросов.",
+    unreadable:"Журнал DNS не удалось прочитать.", unsupported:"Формат журнала DNS не распознан."};
+  if(n.status!=="ok"){ $("dnsq").textContent=""; $("dns").innerHTML=`<div class="note"><b>${titles[n.status]||"Сайты недоступны."}</b><br>${esc(n.note||"")}</div>
       <p style="color:var(--dim);font-size:12px;margin:10px 0 0">VPN-туннель сам по себе показывает только объём трафика пользователя, а не какие сайты он открывал.</p>`; return; }
-  $("dnsq").textContent = n.queries+" запросов";
+  $("dnsq").textContent = n.queries+" запросов"+(n.coverage_hours!=null && n.coverage_hours<23? ` · ${n.coverage_hours} ч`:"");
   const users=n.per_user||[]; const src = dnsUser? (users.find(u=>u.client===dnsUser)||{top:[]}).top : n.top;
   const max=Math.max(1,...src.map(x=>x.n));
   $("dns").innerHTML = `<div class="chips" style="margin:0 0 10px">${[`<span class="chip click ${!dnsUser?"sel":""}" data-u="">Все</span>`].concat(
       users.map(u=>`<span class="chip click ${dnsUser===u.client?"sel":""}" data-u="${esc(u.client)}">${esc(u.client)} <span style="color:var(--dim)">${u.total}</span></span>`)).join("")}</div>` +
     (src.length? src.map(x=>`<div class="hbar"><span class="t" title="${esc(x.site)}">${esc(x.site)}</span><span class="b"><span style="width:${(x.n/max*100).toFixed(1)}%"></span></span><span class="n">${x.n}</span></div>`).join("")
       : `<div class="empty">нет запросов</div>`) +
-    `<p style="color:var(--dim);font-size:12px;margin:10px 0 0">По DNS-запросам видно, к каким доменам обращались устройства, но не страницы и не время на сайте. Часть запросов идёт в фоне (обновления, реклама).</p>`;
+    `<p style="color:var(--dim);font-size:12px;margin:10px 0 0">${n.note? esc(n.note)+"<br>":""}По DNS-запросам видно, к каким доменам обращались устройства, но не страницы и не время на сайте. Часть запросов идёт в фоне (обновления, реклама).</p>`;
   document.querySelectorAll("#dns .chip.click").forEach(ch=>ch.onclick=()=>{ dnsUser=ch.dataset.u||null; renderDNS(); });
 }
 
