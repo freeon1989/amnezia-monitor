@@ -1,0 +1,316 @@
+# Сборка готового AmneziaMonitor.exe (Windows x64) на GitHub-hosted windows-latest.
+# Использует существующий build_exe.ps1 и AmneziaMonitor.spec. Релиз не публикует.
+# В артефакт не входят servers.yaml, .env и пароли: их вводят на целевом ПК.
+name: Build Windows EXE
+
+on:
+  push:
+    branches:
+      - "cursor/**"
+
+concurrency:
+  group: windows-exe-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12.10"
+          architecture: x64
+
+      - name: Show build identity
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force -Path build-meta | Out-Null
+          git rev-parse HEAD | Set-Content -Encoding ascii build-meta\source-commit.txt
+          python -c "import sys,struct,platform; print(sys.version); print(sys.executable); print(platform.machine()); print(struct.calcsize('P')*8)" | Tee-Object -FilePath build-meta\python-version.txt
+          $bits = python -c "import struct; print(struct.calcsize('P')*8)"
+          if ($bits.Trim() -ne '64') { throw "Python is not 64-bit: $bits" }
+
+      - name: Reduce Defender interference with the PyInstaller output
+        shell: pwsh
+        run: |
+          $paths = @(
+            (Join-Path (Get-Location) 'dist'),
+            (Join-Path (Get-Location) 'build'),
+            (Join-Path (Get-Location) '.venv-build')
+          )
+          foreach ($p in $paths) { New-Item -ItemType Directory -Force -Path $p | Out-Null }
+          try {
+            Add-MpPreference -ExclusionPath $paths
+            Write-Host "Defender exclusions added"
+          } catch {
+            Write-Host "Defender exclusion not applied: $($_.Exception.Message)"
+          }
+
+      - name: Build with build_exe.ps1
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if (Get-Variable -Name PSNativeCommandUseErrorActionPreference -ErrorAction SilentlyContinue) {
+            $PSNativeCommandUseErrorActionPreference = $false
+          }
+          $py = (python -c "import sys; print(sys.executable)").Trim()
+          Write-Host "Base Python: $py"
+          & .\build_exe.ps1 -Test -Python $py
+          if ($LASTEXITCODE -ne 0) { throw "build_exe.ps1 exited $LASTEXITCODE" }
+          & .\.venv-build\Scripts\python.exe -m pip freeze | Set-Content -Encoding utf8 build-meta\pip-freeze.txt
+
+      - name: Verify PE32+ x64 and packaged modules
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $exe = Join-Path (Get-Location) 'dist\AmneziaMonitor.exe'
+          if (-not (Test-Path -LiteralPath $exe)) { throw "Missing $exe" }
+          $item = Get-Item -LiteralPath $exe
+          if ($item.Length -lt 8MB) { throw "Executable is unexpectedly small: $($item.Length) bytes" }
+
+          $fs = [System.IO.File]::OpenRead($exe)
+          try {
+            $br = New-Object System.IO.BinaryReader($fs)
+            $mz = $br.ReadUInt16()
+            if ($mz -ne 0x5A4D) { throw "Not an MZ executable" }
+            $fs.Seek(0x3C, [System.IO.SeekOrigin]::Begin) | Out-Null
+            $peOff = $br.ReadInt32()
+            $fs.Seek($peOff, [System.IO.SeekOrigin]::Begin) | Out-Null
+            $sig = $br.ReadUInt32()
+            if ($sig -ne 0x00004550) { throw "Not a PE executable" }
+            $machine = $br.ReadUInt16()
+            $null = $br.ReadUInt16() # NumberOfSections
+            $fs.Seek(16, [System.IO.SeekOrigin]::Current) | Out-Null
+            $magic = $br.ReadUInt16()
+            $fs.Seek(66, [System.IO.SeekOrigin]::Current) | Out-Null
+            $subsystem = $br.ReadUInt16()
+          } finally {
+            $fs.Close()
+          }
+          $machineName = switch ($machine) { 0x8664 { 'AMD64' } 0x14c { 'I386' } 0xAA64 { 'ARM64' } default { '0x{0:X}' -f $machine } }
+          $magicName = switch ($magic) { 0x20B { 'PE32+' } 0x10B { 'PE32' } default { '0x{0:X}' -f $magic } }
+          $subName = switch ($subsystem) { 2 { 'WINDOWS_GUI' } 3 { 'WINDOWS_CUI' } default { "$subsystem" } }
+          $info = @"
+path=$exe
+size=$($item.Length)
+machine=$machineName
+magic=$magicName
+subsystem=$subName
+"@
+          Set-Content -Encoding ascii -Path build-meta\pe-info.txt -Value $info
+          Write-Host $info
+          if ($machine -ne 0x8664) { throw "Expected AMD64, got $machineName" }
+          if ($magic -ne 0x20B) { throw "Expected PE32+, got $magicName" }
+          if ($subsystem -ne 2) { throw "Expected WINDOWS_GUI, got $subName" }
+
+          $checker = @'
+          import sys
+          from PyInstaller.archive.readers import CArchiveReader, pkg_archive_contents
+
+          exe = sys.argv[1]
+          names = pkg_archive_contents(exe)
+          low = [n.replace("\\", "/").lower() for n in names]
+          with open("build-meta/archive-toc.txt", "w", encoding="utf-8") as fh:
+              fh.write("\n".join(sorted(names)))
+
+          def has(part):
+              return any(part in n for n in low)
+
+          required = [
+              "dashboard.html",
+              "amnezia_monitor",
+              "app_main",
+              "app_settings",
+              "secrets_store",
+              "dashboard_api",
+              "demo_data",
+              "paramiko",
+              "cryptography",
+              "yaml",
+              "requests",
+              "pystray",
+              "pil",
+              "six",
+              "_ssl",
+          ]
+          missing = [r for r in required if not has(r)]
+          if missing:
+              raise SystemExit("missing from archive: " + ", ".join(missing))
+
+          banned = [n for n in low if n.endswith(("servers.yaml", "servers.yaml.example", ".env", ".env.example"))]
+          if banned:
+              raise SystemExit("forbidden bundled files: " + ", ".join(banned))
+
+          reader = CArchiveReader(exe)
+          dlls = [n for n in reader.toc if n.lower().endswith(".dll")]
+          sos = [n for n in reader.toc if n.lower().endswith(".so")]
+          pyds = [n for n in reader.toc if n.lower().endswith(".pyd")]
+          if sos:
+              raise SystemExit("Linux shared objects inside the Windows exe: " + ", ".join(sos))
+          py = [n for n in dlls if n.lower().startswith("python3") and n.lower().endswith(".dll")]
+          if not py:
+              raise SystemExit("Windows python3 DLL not found. DLLs sample: " + ", ".join(dlls[:40]))
+          if not pyds:
+              raise SystemExit("no Windows .pyd extensions packaged")
+          print("archive_entries", len(names))
+          print("python_dll", ", ".join(py))
+          print("pyd_count", len(pyds))
+          print("dll_count", len(dlls))
+          '@
+          [System.IO.File]::WriteAllText((Join-Path (Get-Location) 'verify_frozen.py'), $checker.Trim())
+          & .\.venv-build\Scripts\python.exe verify_frozen.py $exe
+          if ($LASTEXITCODE -ne 0) { throw "archive verification failed" }
+
+      - name: Smoke-test demo dashboard
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $exe = (Resolve-Path 'dist\AmneziaMonitor.exe').Path
+          $data = 'C:\amnezia-smoke'
+          if (Test-Path $data) { Remove-Item -LiteralPath $data -Recurse -Force }
+          New-Item -ItemType Directory -Path $data | Out-Null
+          $p = Start-Process -FilePath $exe -WorkingDirectory (Split-Path $exe) -PassThru -ArgumentList @(
+            '--demo', '--no-browser', '--no-tray', '--exit-after', '25',
+            '--port', '18765', '--data-dir', $data, '-v'
+          )
+          Write-Host "started pid=$($p.Id)"
+          $health = $null
+          $deadline = (Get-Date).AddSeconds(80)
+          do {
+            Start-Sleep -Seconds 2
+            try {
+              $resp = Invoke-WebRequest -Uri 'http://127.0.0.1:18765/api/health' -UseBasicParsing -TimeoutSec 3
+              if ($resp.StatusCode -eq 200 -and $resp.Content -match '"app"\s*:\s*"amnezia-monitor"') {
+                $health = $resp.Content
+                break
+              }
+            } catch {
+              Write-Host ("waiting: " + $_.Exception.Message)
+            }
+          } while ((Get-Date) -lt $deadline)
+
+          $logPath = Join-Path $data 'amnezia-monitor.log'
+          function Show-LogSafe([string]$Path) {
+            if (-not (Test-Path -LiteralPath $Path)) { Write-Host 'no application log'; return }
+            foreach ($line in (Get-Content -LiteralPath $Path -Tail 80)) {
+              if ($line -match 'CHANGE_ME|dpapi:|password') { Write-Host '[redacted log line]' }
+              else { Write-Host $line }
+            }
+          }
+
+          if (-not $health) {
+            Show-LogSafe $logPath
+            if (-not $p.HasExited) { Stop-Process -Id $p.Id -Force }
+            throw 'smoke failed: /api/health did not become ready'
+          }
+
+          $listen = @()
+          try {
+            $listen = @(Get-NetTCPConnection -OwningProcess $p.Id -State Listen -ErrorAction Stop)
+            foreach ($c in $listen) { Write-Host ("listen {0}:{1}" -f $c.LocalAddress, $c.LocalPort) }
+            $open = @($listen | Where-Object { $_.LocalAddress -notin @('127.0.0.1', '::1') })
+            if ($open.Count -gt 0) { throw 'dashboard is not bound to loopback only' }
+          } catch {
+            if ($_.Exception.Message -match 'loopback') { throw }
+            Write-Host "listen check skipped: $($_.Exception.Message)"
+          }
+
+          $servers = Invoke-WebRequest -Uri 'http://127.0.0.1:18765/api/servers' -UseBasicParsing -TimeoutSec 5
+          if ($servers.Content -notmatch '"name"\s*:\s*"test1"') { throw 'demo server test1 missing from /api/servers' }
+          foreach ($secret in @('CHANGE_ME', 'dpapi:', 'TELEGRAM_BOT_TOKEN')) {
+            if ($servers.Content -match [regex]::Escape($secret)) { throw "API response contains $secret" }
+          }
+          $page = Invoke-WebRequest -Uri 'http://127.0.0.1:18765/' -UseBasicParsing -TimeoutSec 5
+          if ($page.Content -notmatch '<title>Amnezia Monitor</title>') { throw 'dashboard HTML was not served' }
+          if ($page.Content -notmatch 'только чтение') { throw 'packaged dashboard.html content missing' }
+          if ($page.Content -match 'CHANGE_ME') { throw 'dashboard page contains a demo password' }
+
+          if (-not $p.WaitForExit(45000)) {
+            Stop-Process -Id $p.Id -Force
+            Show-LogSafe $logPath
+            throw 'process did not exit after --exit-after'
+          }
+          $summary = @"
+smoke=ok
+pid=$($p.Id)
+exit=$($p.ExitCode)
+health_ok=true
+api_servers_has_test1=true
+page_title=true
+page_bytes=$($page.RawContentLength)
+loopback_listeners=$($listen.Count)
+"@
+          Set-Content -Encoding ascii -Path build-meta\smoke.txt -Value $summary
+          Write-Host $summary
+          Remove-Item -LiteralPath $data -Recurse -Force
+
+      - name: Package zip
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $stage = Join-Path $env:RUNNER_TEMP 'amnezia-pkg'
+          $root = Join-Path $stage 'AmneziaMonitor-win-x64'
+          if (Test-Path $stage) { Remove-Item -Recurse -Force $stage }
+          New-Item -ItemType Directory -Path $root | Out-Null
+          Copy-Item dist\AmneziaMonitor.exe (Join-Path $root 'AmneziaMonitor.exe')
+          $hash = (Get-FileHash -Algorithm SHA256 (Join-Path $root 'AmneziaMonitor.exe')).Hash.ToLower()
+          Set-Content -Encoding ascii -Path (Join-Path $root 'SHA256SUMS.txt') -Value "$hash  AmneziaMonitor.exe"
+          $start = @'
+          Amnezia Monitor — Windows x64
+
+          Запуск: двойной щелчок по AmneziaMonitor.exe.
+          Откроется браузер с панелью (http://127.0.0.1:8765, либо следующий свободный порт).
+          Значок в трее: «Открыть панель», «Папка с данными», «Выход».
+          Повторный запуск не создаёт вторую копию, а открывает уже работающую панель.
+
+          Настройки и база: %APPDATA%\AmneziaMonitor\
+            servers.yaml, amnezia_monitor.db, amnezia-monitor.log
+
+          При первом запуске серверов нет — откроется страница «Настройки».
+          Пароль каждого сервера и токен Telegram вводятся там и шифруются Windows DPAPI
+          (только эта учётная запись Windows на этом компьютере). Панель слушает только 127.0.0.1.
+
+          Файл не подписан. SmartScreen может показать «Windows защитила ваш компьютер» —
+          «Подробнее» — «Выполнить в любом случае».
+
+          Автозапуск: ярлык на AmneziaMonitor.exe в папке, которую открывает shell:startup.
+
+          В этом архиве нет servers.yaml, .env, личных адресов серверов и паролей.
+          '@
+          [System.IO.File]::WriteAllText((Join-Path $root 'START.txt'), ($start.Trim() -replace "`n", "`r`n") + "`r`n")
+          $zip = Join-Path (Get-Location) 'dist\AmneziaMonitor-win-x64.zip'
+          if (Test-Path $zip) { Remove-Item -Force $zip }
+          Compress-Archive -Path $root -DestinationPath $zip
+          $zipHash = (Get-FileHash -Algorithm SHA256 $zip).Hash.ToLower()
+          Set-Content -Encoding ascii -Path build-meta\zip-sha256.txt -Value "$zipHash  AmneziaMonitor-win-x64.zip"
+          Set-Content -Encoding ascii -Path build-meta\exe-sha256.txt -Value "$hash  AmneziaMonitor.exe"
+          Write-Host "exe $hash"
+          Write-Host "zip $zipHash"
+
+      - name: Upload distributable
+        uses: actions/upload-artifact@v4
+        with:
+          name: AmneziaMonitor-win-x64
+          path: |
+            dist/AmneziaMonitor-win-x64.zip
+            build-meta/**
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: AmneziaMonitor-win-x64-failed
+          path: |
+            dist/AmneziaMonitor.exe
+            build-meta/**
+          if-no-files-found: warn
+          retention-days: 7
