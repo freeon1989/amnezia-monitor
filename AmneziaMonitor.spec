@@ -18,15 +18,36 @@ except Exception as e:  # без значка .exe всё равно собер�
     icon_path = None
 
 hidden = [
-    "amnezia_monitor", "app_main", "app_settings", "secrets_store", "dashboard", "dashboard_api",
+    "amnezia_monitor", "app_main", "app_settings", "app_window", "secrets_store", "dashboard", "dashboard_api",
     "demo_data", "yaml", "requests", "pystray._win32", "PIL.Image", "PIL.ImageDraw",
+    "webview", "webview.platforms.winforms", "webview.platforms.edgechromium",
+    "clr", "clr_loader", "pythonnet",
 ] + collect_submodules("paramiko")
+
+wv_datas, wv_bins = [], []
+try:
+    from PyInstaller.utils.hooks import collect_data_files, collect_dynamic_libs
+    from pathlib import Path
+    wv_datas += collect_data_files("webview", subdir="lib")
+    wv_bins += collect_dynamic_libs("webview")
+    import webview
+    lib = Path(webview.__file__).resolve().parent / "lib"
+    native = lib / "runtimes" / "win-x64" / "native" / "WebView2Loader.dll"
+    if native.is_file():
+        wv_datas.append((str(native), "win-x64"))
+    for name in ("Microsoft.Web.WebView2.Core.dll", "Microsoft.Web.WebView2.WinForms.dll",
+                 "WebBrowserInterop.x64.dll"):
+        found = lib / name
+        if found.is_file():
+            wv_datas.append((str(found), "webview/lib"))
+except Exception as e:
+    print("WARNING: webview files not collected:", e)
 
 a = Analysis(
     [os.path.join(ROOT, "app_main.py")],
     pathex=[ROOT],
-    binaries=[],
-    datas=[(os.path.join(ROOT, "dashboard.html"), ".")],
+    binaries=wv_bins,
+    datas=[(os.path.join(ROOT, "dashboard.html"), ".")] + wv_datas,
     hiddenimports=hidden,
     excludes=["tkinter", "IPython", "matplotlib", "numpy"],
     noarchive=False,

@@ -15,6 +15,7 @@ amnezia_monitor — агент мониторинга собственных с�
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import logging
 import os
@@ -404,6 +405,76 @@ def attach_dns(res, text: str, status_if_empty: str = "no_log") -> None:
     res.dns_status = "ok"
 
 
+DNS_HISTORY_SEC = 24 * 3600
+DNS_READ_BYTES = 524288          # хвост одного файла; вместе с архивами не больше ~50 МиБ
+DNS_ARCHIVE_FILES = 96           # 24 ч при ротации раз в 15 минут
+_DNS_MARK_MISSING = "AMNEZIA_DNS_ACTIVE_MISSING"
+_DNS_MARK_FILE = "AMNEZIA_DNS_FILE"
+_DNS_NOTES = {
+    "no_log": "Файла журнала в контейнере amnezia-dns нет, и docker logs пуст. "
+              "Запросы не пишутся, либо пишутся в путь, который программа ещё не знает.",
+    "empty": "Журнал на сервере есть, но запросов в прочитанном окне нет. Это не «журнал выключен».",
+    "unreadable": "Контейнер amnezia-dns работает, но прочитать журнал не удалось. "
+                  "Программа ничего на сервере не меняет.",
+    "unsupported": "Файл журнала прочитан, но строки запросов не распознаны. "
+                   "Ожидается Unbound «[время] unbound[…] info: IP имя. A IN» или AdGuard querylog.json.",
+}
+
+
+def interpret_dns_capture(text: str, rc: int, now: float) -> dict:
+    """Текст команды чтения → статус, записи не старше 24 ч и фактический охват.
+
+    no_log — источника нет. empty — источник есть, запросов нет.
+    unreadable — команда не выполнилась. unsupported — текст есть, формат чужой.
+    Записи старше 24 ч отбрасываются и не достраиваются.
+    """
+    raw = text or ""
+    if rc != 0 and not raw.strip():
+        return {"status": "unreadable", "entries": [], "coverage_sec": None, "note": _DNS_NOTES["unreadable"]}
+    active_missing = _DNS_MARK_MISSING in raw
+    archive_count = raw.count(_DNS_MARK_FILE)
+    body = []
+    for line in raw.splitlines():
+        s = line.strip()
+        if s in (_DNS_MARK_MISSING, "AMNEZIA_DNS_ARCHIVES") or s.startswith(_DNS_MARK_FILE):
+            continue
+        if s.startswith("==>") and s.endswith("<=="):
+            continue
+        body.append(line)
+    entries = parse_dns_log("\n".join(body))
+    cutoff = now - DNS_HISTORY_SEC
+    fresh = [e for e in entries if e["ts"] is None or e["ts"] >= cutoff]
+    dropped_old = len(entries) - len(fresh)
+    timed = [e["ts"] for e in fresh if e["ts"] is not None]
+    if fresh:
+        oldest = min(timed) if timed else None
+        reach = (now - oldest) if oldest is not None else None
+        note = None
+        if reach is not None and reach < DNS_HISTORY_SEC - 1800:
+            note = ("Показаны фактические %.1f ч. Более ранних строк в журнале сервера нет, "
+                    "программа их не достраивает." % (reach / 3600.0))
+        return {"status": "ok", "entries": fresh, "coverage_sec": reach, "note": note}
+    if any(line.strip() for line in body):
+        note = _DNS_NOTES["unsupported"]
+        if dropped_old:
+            note = "В журнале есть только запросы старше 24 часов. В окно суток они не входят."
+            return {"status": "empty", "entries": [], "coverage_sec": None, "note": note}
+        return {"status": "unsupported", "entries": [], "coverage_sec": None, "note": note}
+    if (not active_missing) or archive_count:
+        return {"status": "empty", "entries": [], "coverage_sec": None, "note": _DNS_NOTES["empty"]}
+    return {"status": "no_log", "entries": [], "coverage_sec": None, "note": _DNS_NOTES["no_log"]}
+
+
+def apply_dns_result(res, info: dict) -> None:
+    m = ip_to_client_map(res.peers)
+    for e in info["entries"]:
+        e["client"] = m.get(e["ip"], e["ip"])
+    res.dns = info["entries"]
+    res.dns_status = info["status"]
+    res.dns_note = info.get("note")
+    res.dns_coverage_sec = info.get("coverage_sec")
+
+
 def fmt_bytes(n: Optional[float], per_sec: bool = False) -> str:
     if n is None:
         return "—"
@@ -448,9 +519,14 @@ READ_ONLY_COMMANDS = {
     "wg_dump": "{docker} exec {c} sh -c 'awg show all dump 2>/dev/null || wg show all dump'",
     "clients": "{docker} exec {c} sh -c 'cat /opt/amnezia/{t}/clientsTable 2>/dev/null || "
                "cat /opt/amnezia/*/clientsTable 2>/dev/null'",
-    # DNS-журнал читается, ТОЛЬКО если логирование запросов уже включено на сервере.
-    # AdGuard Home (querylog.json) или Unbound (log-queries: yes) в файл; иначе — вывод контейнера.
-    "dns_log": "{docker} exec {c} sh -c 'tail -n {n} /opt/adguardhome/work/data/querylog.json 2>/dev/null || "
+    # Только чтение. Активный журнал Amnezia Unbound и не более 96 ротированных файлов,
+    # с каждого — не больше DNS_READ_BYTES. Старые пути AdGuard и /var/log/unbound остаются запасными.
+    "dns_log": "{docker} exec {c} sh -c '"
+               "tail -c " + str(DNS_READ_BYTES) + " /opt/unbound/etc/unbound/unbound.log 2>/dev/null "
+               "|| echo " + _DNS_MARK_MISSING + "; "
+               "for f in $(ls -1 /opt/unbound/etc/unbound/log-archive/unbound-*.log 2>/dev/null | sort | tail -n "
+               + str(DNS_ARCHIVE_FILES) + "); do echo " + _DNS_MARK_FILE + "; tail -c " + str(DNS_READ_BYTES) + " \"$f\"; done; "
+               "tail -n {n} /opt/adguardhome/work/data/querylog.json 2>/dev/null || "
                "tail -n {n} /var/log/unbound/unbound.log 2>/dev/null || tail -n {n} /var/log/unbound.log 2>/dev/null'",
     "dns_docker_logs": "{docker} logs --tail {n} {c}",
 }
@@ -573,6 +649,16 @@ class Store:
             except sqlite3.DatabaseError:
                 pass
         self.db.executescript(SCHEMA)
+        self._migrate_dns_line_key()
+
+    def _migrate_dns_line_key(self) -> None:
+        """Старые базы не знают line_key. Индекс нельзя создавать до ALTER: executescript
+        падает на CREATE INDEX и миграция ниже не выполняется."""
+        cols = [r[1] for r in self.db.execute("PRAGMA table_info(dns)")]
+        if "line_key" not in cols:
+            self.db.execute("ALTER TABLE dns ADD COLUMN line_key TEXT")
+        self.db.execute("CREATE INDEX IF NOT EXISTS idx_dns_line ON dns(server, line_key)")
+        self.db.commit()
 
     def get_state(self, key: str, default=None):
         r = self.db.execute("SELECT value FROM state WHERE key=?", (key,)).fetchone()
@@ -609,8 +695,10 @@ class PollResult:
     containers: list = field(default_factory=list)
     peers: list = field(default_factory=list)     # с полями container, client
     error: Optional[str] = None
-    dns: list = field(default_factory=list)       # записи журнала DNS (если он включён)
-    dns_status: str = "no_container"              # ok | no_log | no_container
+    dns: list = field(default_factory=list)       # записи журнала DNS за доступное окно
+    dns_status: str = "no_container"              # ok | empty | no_log | unreadable | unsupported | no_container
+    dns_note: Optional[str] = None
+    dns_coverage_sec: Optional[float] = None
 
 
 def collect(srv: ServerCfg, runner_factory: Callable[[ServerCfg], Runner], now: float,
@@ -664,12 +752,26 @@ def collect(srv: ServerCfg, runner_factory: Callable[[ServerCfg], Runner], now: 
         dns_c = next((c for c in res.containers if c["type"] == "dns" and c["up"]), None)
         if dns_c:
             q = shlex.quote(dns_c["name"])
-            text = out("dns_log", c=q, n=DNS_TAIL_LINES)
-            if not text.strip():
-                rc, o, e = runner.run(READ_ONLY_COMMANDS["dns_docker_logs"].format(
+            cmd = READ_ONLY_COMMANDS["dns_log"].format(docker=srv.docker_cmd, c=q, n=DNS_TAIL_LINES)
+            rc, captured, _err = runner.run(cmd)
+            info = interpret_dns_capture(captured or "", rc, now)
+            if info["status"] == "no_log":
+                rc2, o, e = runner.run(READ_ONLY_COMMANDS["dns_docker_logs"].format(
                     docker=srv.docker_cmd, c=q, n=DNS_TAIL_LINES))
-                text = (o or "") + "\n" + (e or "")   # docker logs пишет и в stderr
-            attach_dns(res, text)
+                logs = ((o or "") + "\n" + (e or "")).strip()
+                if rc2 != 0 and not logs:
+                    info = {"status": "unreadable", "entries": [], "coverage_sec": None,
+                            "note": _DNS_NOTES["unreadable"]}
+                elif logs:
+                    parsed = interpret_dns_capture(logs, 0, now)
+                    if parsed["entries"]:
+                        info = parsed
+                    elif parsed["status"] == "unsupported":
+                        info = parsed
+                    else:
+                        info = {"status": "no_log", "entries": [], "coverage_sec": None,
+                                "note": _DNS_NOTES["no_log"]}
+            apply_dns_result(res, info)
     except Exception as e:
         res.error = f"Ошибка опроса: {type(e).__name__}: {e}"
     finally:
@@ -779,24 +881,41 @@ def process(store: Store, cfg: Config, r: PollResult) -> list:
                 ev("mem_ok", r.server, f"✅ {r.server}: память в норме ({mp:.0f}%)")
             new["mem_alert"] = hi
 
-    # --- DNS: сохраняем только новые строки журнала (после последней уже виденной)
+    # --- DNS: 24 ч, без повторной вставки тех же строк из ротированных файлов
     if up_now:
         new["dns_status"] = r.dns_status
+        new["dns_note"] = r.dns_note
+        new["dns_coverage_sec"] = r.dns_coverage_sec
+        cutoff = r.ts - DNS_HISTORY_SEC
+        store.db.execute("DELETE FROM dns WHERE server=? AND ts < ?", (r.server, cutoff))
         if r.dns:
             last = prev.get("dns_last")
             lines = [e["line"] for e in r.dns]
             start = 0
             if last and last in lines:
                 start = len(lines) - lines[::-1].index(last)
+            seen = set()
             for e in r.dns[start:]:
-                store.db.execute("INSERT INTO dns(ts, server, client, ip, domain, site, qtype) VALUES (?,?,?,?,?,?,?)",
-                                 (e["ts"] or r.ts, r.server, e["client"], e["ip"], e["domain"],
-                                  root_domain(e["domain"]), e["qtype"]))
+                if e["ts"] is not None and e["ts"] < cutoff:
+                    continue
+                key = hashlib.sha1(e["line"].encode("utf-8", "replace")).hexdigest()
+                if key in seen:
+                    continue
+                seen.add(key)
+                if store.db.execute("SELECT 1 FROM dns WHERE server=? AND line_key=?",
+                                    (r.server, key)).fetchone():
+                    continue
+                store.db.execute(
+                    "INSERT INTO dns(ts, server, client, ip, domain, site, qtype, line_key) VALUES (?,?,?,?,?,?,?,?)",
+                    (e["ts"] or r.ts, r.server, e["client"], e["ip"], e["domain"],
+                     root_domain(e["domain"]), e["qtype"], key))
             new["dns_last"] = lines[-1]
         else:
             new["dns_last"] = prev.get("dns_last")
     else:
         new["dns_status"] = prev.get("dns_status", "no_container")
+        new["dns_note"] = prev.get("dns_note")
+        new["dns_coverage_sec"] = prev.get("dns_coverage_sec")
         new["dns_last"] = prev.get("dns_last")
 
     store.set_state(key, new)
@@ -976,7 +1095,7 @@ def main(argv=None) -> int:
     dp.add_argument("--port", type=int, default=8765)
     dp.add_argument("--with-monitor", action="store_true", help="заодно опрашивать серверы (как run) в фоне")
     dp.add_argument("--export-html", metavar="FILE", help="сохранить статичный HTML с данными и выйти")
-    app = sub.add_parser("app", help="режим приложения: опрос + панель + настройки, открывает браузер")
+    app = sub.add_parser("app", help="режим приложения: опрос + панель + настройки; на Windows — своё окно")
     import app_main
     app_main.add_args(app)
     args = ap.parse_args(argv)
