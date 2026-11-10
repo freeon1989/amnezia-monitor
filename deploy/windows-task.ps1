@@ -1,4 +1,4 @@
-﻿# Windows (например, ПК NAKO): регистрирует задачу Планировщика, которая запускает `check` каждую минуту.
+﻿# Windows: регистрирует задачу Планировщика, которая запускает `check` каждую минуту.
 # Запуск: PowerShell от имени администратора, из папки amnezia-monitor:
 #   powershell -ExecutionPolicy Bypass -File deploy\windows-task.ps1            (только мониторинг)
 #   powershell -ExecutionPolicy Bypass -File deploy\windows-task.ps1 -Dashboard (+ веб-панель при входе)

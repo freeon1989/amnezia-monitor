@@ -23,7 +23,7 @@ def fake_key(seed: str) -> str:
 
 CLIENTS = {  # server -> [(client name, container)]
     "test1": [("Дмитрий — телефон", "amnezia-awg"), ("Дмитрий — ноутбук", "amnezia-awg"),
-              ("Мама", "amnezia-awg"), ("Офис NAKO", "amnezia-awg")],
+              ("Мама", "amnezia-awg"), ("Офис", "amnezia-awg")],
     "test2": [("Брат", "amnezia-wireguard"), ("Телевизор", "amnezia-wireguard")],
     "test3": [("Дача — роутер", "amnezia-awg")],
     "test4": [("Резервный", "amnezia-awg")],
@@ -146,7 +146,7 @@ DASH_USERS = [
      ["github.com", "githubusercontent.com", "openai.com", "googleapis.com", "stackoverflow.com", "youtube.com", "microsoft.com"]),
     ("Мама", "test1", "amnezia-awg", set(range(10, 23)), 90_000,
      ["youtube.com", "googlevideo.com", "whatsapp.net", "instagram.com", "facebook.com", "rutube.ru"]),
-    ("Офис NAKO", "test1", "amnezia-awg", set(range(9, 18)), 260_000,
+    ("Офис", "test1", "amnezia-awg", set(range(9, 18)), 260_000,
      ["microsoft.com", "windowsupdate.com", "office.com", "zoom.us", "googleapis.com"]),
     ("Брат", "test2", "amnezia-wireguard", set(list(range(0, 2)) + list(range(16, 24))), 650_000,
      ["twitch.tv", "steamcontent.com", "discord.com", "youtube.com", "googlevideo.com", "reddit.com"]),
