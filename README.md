@@ -1,5 +1,15 @@
 # Amnezia Monitor
 
+Amnezia Monitor показывает состояние ваших серверов AmneziaVPN: доступность, нагрузку, контейнеры и подключённых клиентов. Программа только читает данные и ничего на серверах не меняет.
+
+Кому подойдёт: тем, кто держит один или несколько своих серверов AmneziaVPN и хочет видеть их в одном окне, без ручного входа по SSH.
+
+Платформы:
+
+- **Windows:** готовая программа с панелью, настройками и значком в трее.
+- **Android и macOS:** приложения-спутники. Они показывают данные панели Windows по локальной сети.
+- **Linux:** тот же агент из исходников, если монитор должен работать постоянно, например на VPS.
+
 ## Скачать
 
 [![Скачать для Windows](https://img.shields.io/badge/%D0%A1%D0%BA%D0%B0%D1%87%D0%B0%D1%82%D1%8C%20%D0%B4%D0%BB%D1%8F%20Windows-zip-2ea44f?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/freeon1989/amnezia-monitor/releases/download/v1.1.0/AmneziaMonitor-win-x64-dns-fixed.zip)
@@ -31,7 +41,7 @@
 
 ## Скриншоты
 
-Снимки панели из встроенного демо-режима (`python amnezia_monitor.py --demo dashboard`). На них только тестовые данные: вымышленные имена и адреса из диапазонов для документации. Настоящих IP, имён клиентов и ключей нет.
+Снимки панели из встроенного демо-режима (`python amnezia_monitor.py --demo dashboard`). Страница настроек снята в том же демо (`python amnezia_monitor.py --demo app`): серверы test1, test2, test3 и test4, адреса из диапазона документации, пароли на экран не выводятся. Настоящих IP, имён клиентов и ключей нет.
 
 ### Обзор
 
@@ -48,6 +58,10 @@
 ### Сервер недоступен
 
 ![Вкладка недоступного сервера: последние известные значения](docs/screenshots/dashboard-offline.png)
+
+### Настройки
+
+![Страница настроек: демо-серверы, интервал опроса и уведомления](docs/screenshots/dashboard-settings.png)
 
 ## Возможности
 
@@ -113,7 +127,7 @@ servers.yaml ─► amnezia_monitor.py ── SSH (paramiko, пароль или
 | `requirements-app.txt` | + pystray, Pillow (значок в трее) |
 | `tests/test_app.py` | тесты настроек: токен/Origin/Host, пароли не утекают, DPAPI (с подменой), один экземпляр |
 
-## Быстрый старт (Linux: Kali, VPS, любой постоянно включённый компьютер)
+## Быстрый старт на Linux
 
 ```bash
 sudo mkdir -p /opt/amnezia-monitor && sudo chown "$USER" /opt/amnezia-monitor
@@ -196,7 +210,7 @@ sudo systemctl enable --now amnezia-monitor-summary.timer
 journalctl -u amnezia-monitor -f
 ```
 
-## Windows (ПК NAKO)
+## На Windows
 
 ```powershell
 cd C:\amnezia-monitor
