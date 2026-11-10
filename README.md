@@ -1,9 +1,13 @@
 # Amnezia Monitor
 
-## Скачать для Windows
+## Скачать
 
-[![Скачать для Windows](https://img.shields.io/badge/%D0%A1%D0%BA%D0%B0%D1%87%D0%B0%D1%82%D1%8C%20%D0%B4%D0%BB%D1%8F%20Windows-zip-2ea44f?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/freeon1989/amnezia-monitor/releases/latest)
+[![Скачать для Windows](https://img.shields.io/badge/%D0%A1%D0%BA%D0%B0%D1%87%D0%B0%D1%82%D1%8C%20%D0%B4%D0%BB%D1%8F%20Windows-zip-2ea44f?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/freeon1989/amnezia-monitor/releases/download/v1.1.0/AmneziaMonitor-win-x64-dns-fixed.zip)
+[![Скачать для Android](https://img.shields.io/badge/%D0%A1%D0%BA%D0%B0%D1%87%D0%B0%D1%82%D1%8C%20%D0%B4%D0%BB%D1%8F%20Android-apk-3DDC84?style=for-the-badge&logo=android&logoColor=white)](https://github.com/freeon1989/amnezia-monitor/releases/latest)
+[![Скачать для macOS](https://img.shields.io/badge/%D0%A1%D0%BA%D0%B0%D1%87%D0%B0%D1%82%D1%8C%20%D0%B4%D0%BB%D1%8F%20macOS-dmg-111111?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/freeon1989/amnezia-monitor/releases/latest)
 [![версия](https://img.shields.io/github/v/release/freeon1989/amnezia-monitor?style=for-the-badge&label=%D0%B2%D0%B5%D1%80%D1%81%D0%B8%D1%8F&color=1f6feb)](https://github.com/freeon1989/amnezia-monitor/releases/latest)
+
+### Windows
 
 Готовая программа для 64-битной Windows. Python ставить не нужно.
 
@@ -16,6 +20,14 @@
 **SmartScreen.** Файл не подписан, поэтому Windows может показать «Windows защитила ваш компьютер». Нажмите «Подробнее», затем «Выполнить в любом случае».
 
 **WebView2.** Окно программы рисуется компонентом Microsoft Edge WebView2. На Windows 10 и 11 он обычно уже установлен. Если окно не открылось, поставьте бесплатный [WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/) и запустите программу снова. Внешний браузер при этом сам не открывается.
+
+### Android
+
+Приложение-спутник: показывает данные панели Windows по локальной сети. На компьютере включите доступ из локальной сети и скопируйте токен в настройках. Это отладочная сборка: разрешите установку из неизвестных источников.
+
+### macOS
+
+Приложение-спутник для macOS 13 и новее: значок в строке меню, те же данные панели. Нужны доступ из локальной сети и токен из настроек Windows. Сборка не подписана: первый запуск через правый щелчок и пункт «Открыть».
 
 ## Скриншоты
 
@@ -260,7 +272,7 @@ VPN-туннель (WireGuard/AmneziaWG) сам по себе видит тол�
 
 ## Программа для Windows: один файл AmneziaMonitor.exe
 
-Готовый архив уже собран, ссылка в разделе «Скачать для Windows» в начале страницы. Ниже: как устроена программа и как собрать её самостоятельно.
+Готовый архив уже собран, ссылка в разделе «Скачать» в начале страницы. Ниже: как устроена программа и как собрать её самостоятельно.
 
 Без установки Python: двойной щелчок по `AmneziaMonitor.exe` запускает мониторинг и панель
 и открывает окно программы (`http://127.0.0.1:8765`; если порт занят, выбирается любой свободный).
