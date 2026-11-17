@@ -284,6 +284,48 @@ function renderDetail(){
   $("foot").textContent = `${d.name}${d.host? " · "+d.host:""} · данные из локальной истории агента · ${STATIC? "статичная копия":"автообновление каждые 15 с"}`;
 }
 
+let dnsBusy = false, dnsAct = null;
+
+function dnsActionsHtml(){
+  if(!META.settings || STATIC) return "";
+  const dis = dnsBusy ? "disabled" : "";
+  const msg = dnsAct ? `<div class="msg ${dnsAct.ok?"ok":dnsAct.err?"err":""}">${esc(dnsAct.text||"")}</div>` : "";
+  return `<div class="actions">
+      <button class="btn sm" id="dnsEnable" ${dis}>Включить DNS-журнал</button>
+      <button class="btn sm ghost" id="dnsCheck" ${dis}>Проверить</button>
+      <button class="btn sm danger" id="dnsDisable" ${dis}>Отключить</button>
+    </div>${msg}
+    <p style="color:var(--dim);font-size:12px;margin:8px 0 0">Кнопка сама настраивает журнал в amnezia-dns (хранение около 24 часов, потолок 50 МБ) и не трогает VPN и каскад. Перезапускается только контейнер DNS, если конфиг изменился.</p>`;
+}
+function bindDnsActions(){
+  const en=$("dnsEnable"), ch=$("dnsCheck"), dis=$("dnsDisable");
+  if(en) en.onclick=()=>runDns("enable");
+  if(ch) ch.onclick=()=>runDns("check");
+  if(dis) dis.onclick=()=>runDns("disable");
+}
+async function runDns(action){
+  if(dnsBusy || !current) return;
+  const asks = {
+    enable: "Включить журнал DNS-запросов на этом сервере? Он хранит домены, которые спрашивали устройства, около 24 часов (потолок 50 МБ). VPN и каскад не перезапускаются.",
+    disable: "Выключить DNS-журнал на этом сервере?"
+  };
+  if(asks[action] && !confirm(asks[action])) return;
+  dnsBusy = true;
+  dnsAct = {text: action==="check"?"Проверяю…":"Настраиваю журнал…"};
+  renderDNS();
+  try{
+    const j = await api("POST", "/api/server/dns-log", {name: current, action});
+    dnsAct = {text: j.message || "готово", ok: !!j.ok, err: !j.ok};
+    lastLoad = 0;
+    try{ await load(); }catch(e){}
+  }catch(e){
+    dnsAct = {text: String(e.message||e), err: true};
+  }finally{
+    dnsBusy = false;
+    renderDNS();
+  }
+}
+
 function renderDNS(){
   const n=detail.dns||{};
   const head=[...document.querySelectorAll("h3 span")].find(el=>el.textContent.startsWith("Сайты (по DNS"));
@@ -293,8 +335,10 @@ function renderDNS(){
   }
   const titles={no_log:"DNS-журнал не включён на сервере.", empty:"В журнале DNS нет запросов.",
     unreadable:"Журнал DNS не удалось прочитать.", unsupported:"Формат журнала DNS не распознан."};
+  const actions = dnsActionsHtml();
   if(n.status!=="ok"){ $("dnsq").textContent=""; $("dns").innerHTML=`<div class="note"><b>${titles[n.status]||"Сайты недоступны."}</b><br>${esc(n.note||"")}</div>
-      <p style="color:var(--dim);font-size:12px;margin:10px 0 0">VPN-туннель сам по себе показывает только объём трафика пользователя, а не какие сайты он открывал.</p>`; return; }
+      <p style="color:var(--dim);font-size:12px;margin:10px 0 0">VPN-туннель сам по себе показывает только объём трафика пользователя, а не какие сайты он открывал.</p>${actions}`;
+      bindDnsActions(); return; }
   $("dnsq").textContent = n.queries+" запросов"+(n.coverage_hours!=null && n.coverage_hours<23? ` · ${n.coverage_hours} ч`:"");
   const users=n.per_user||[]; const src = dnsUser? (users.find(u=>u.client===dnsUser)||{top:[]}).top : n.top;
   const max=Math.max(1,...src.map(x=>x.n));
@@ -302,8 +346,9 @@ function renderDNS(){
       users.map(u=>`<span class="chip click ${dnsUser===u.client?"sel":""}" data-u="${esc(u.client)}">${esc(u.client)} <span style="color:var(--dim)">${u.total}</span></span>`)).join("")}</div>` +
     (src.length? src.map(x=>`<div class="hbar"><span class="t" title="${esc(x.site)}">${esc(x.site)}</span><span class="b"><span style="width:${(x.n/max*100).toFixed(1)}%"></span></span><span class="n">${x.n}</span></div>`).join("")
       : `<div class="empty">нет запросов</div>`) +
-    `<p style="color:var(--dim);font-size:12px;margin:10px 0 0">${n.note? esc(n.note)+"<br>":""}По DNS-запросам видно, к каким доменам обращались устройства, но не страницы и не время на сайте. Часть запросов идёт в фоне (обновления, реклама).</p>`;
+    `<p style="color:var(--dim);font-size:12px;margin:10px 0 0">${n.note? esc(n.note)+"<br>":""}По DNS-запросам видно, к каким доменам обращались устройства, но не страницы и не время на сайте. Часть запросов идёт в фоне (обновления, реклама).</p>` + actions;
   document.querySelectorAll("#dns .chip.click").forEach(ch=>ch.onclick=()=>{ dnsUser=ch.dataset.u||null; renderDNS(); });
+  bindDnsActions();
 }
 
 function renderNoServers(){

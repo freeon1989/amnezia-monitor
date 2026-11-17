@@ -1,0 +1,9 @@
+[Unit]
+Description=Rotate and age-clean Amnezia Unbound DNS query log
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/amnezia-dns-log-cleanup.sh
+Nice=10

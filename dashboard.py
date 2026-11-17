@@ -154,7 +154,7 @@ def make_handler(store_factory, cfg, demo=False, settings=None):
 
         def do_POST(self):
             u = urlparse(self.path)
-            if u.path not in ("/api/settings", "/api/settings/test", "/api/app/quit"):
+            if u.path not in ("/api/settings", "/api/settings/test", "/api/app/quit", "/api/server/dns-log"):
                 return self._json({"error": "not found"}, 404)
             if not self._settings_guard():
                 return
@@ -167,6 +167,8 @@ def make_handler(store_factory, cfg, demo=False, settings=None):
                     return self._json(settings.save(payload))
                 if u.path == "/api/settings/test":
                     return self._json(settings.test(payload))
+                if u.path == "/api/server/dns-log":
+                    return self._json(settings.dns_log(payload))
                 if u.path == "/api/app/quit":
                     if not settings.on_quit:
                         return self._json({"error": "not available"}, 404)

@@ -18,7 +18,7 @@ except Exception as e:  # без значка .exe всё равно собер�
     icon_path = None
 
 hidden = [
-    "amnezia_monitor", "app_main", "app_settings", "app_window", "secrets_store", "dashboard", "dashboard_api",
+    "amnezia_monitor", "app_main", "app_settings", "app_window", "secrets_store", "dashboard", "dashboard_api", "dns_setup",
     "demo_data", "yaml", "requests", "pystray._win32", "PIL.Image", "PIL.ImageDraw",
     "webview", "webview.platforms.winforms", "webview.platforms.edgechromium",
     "clr", "clr_loader", "pythonnet",
@@ -47,7 +47,12 @@ a = Analysis(
     [os.path.join(ROOT, "app_main.py")],
     pathex=[ROOT],
     binaries=wv_bins,
-    datas=[(os.path.join(ROOT, "dashboard.html"), ".")] + wv_datas,
+    datas=[
+        (os.path.join(ROOT, "dashboard.html"), "."),
+        (os.path.join(ROOT, "deploy", "amnezia-dns-log-cleanup.sh"), "deploy"),
+        (os.path.join(ROOT, "deploy", "amnezia-dns-log-cleanup.service"), "deploy"),
+        (os.path.join(ROOT, "deploy", "amnezia-dns-log-cleanup.timer"), "deploy"),
+    ] + wv_datas,
     hiddenimports=hidden,
     excludes=["tkinter", "IPython", "matplotlib", "numpy"],
     noarchive=False,

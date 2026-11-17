@@ -1,0 +1,12 @@
+[Unit]
+Description=Timer for Amnezia DNS query log cleanup
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=15min
+AccuracySec=1min
+Unit=amnezia-dns-log-cleanup.service
+Persistent=true
+
+[Install]
+WantedBy=timers.target

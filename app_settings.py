@@ -252,7 +252,7 @@ class SettingsContext:
     """Всё, что нужно HTTP-обработчику для страницы настроек (только в режиме приложения)."""
 
     def __init__(self, config_path, token: str, data_dir: str = "", on_saved=None, on_quit=None,
-                 runner_factory=None, tcp=None, app_mode: bool = True):
+                 runner_factory=None, tcp=None, app_mode: bool = True, dns_remote_factory=None):
         self.config_path = str(config_path)
         self.token = token
         self.data_dir = data_dir
@@ -261,6 +261,7 @@ class SettingsContext:
         self.runner_factory = runner_factory
         self.tcp = tcp
         self.app_mode = app_mode
+        self.dns_remote_factory = dns_remote_factory
 
     def get(self) -> dict:
         v = public_view(read_raw(self.config_path))
@@ -279,3 +280,18 @@ class SettingsContext:
     def test(self, payload: dict) -> dict:
         srv = server_for_test(read_raw(self.config_path), payload.get("server") or {})
         return test_connection(srv, self.runner_factory, self.tcp)
+
+    def dns_log(self, payload: dict) -> dict:
+        """Включить / проверить / выключить DNS-журнал на уже сохранённом сервере."""
+        import amnezia_monitor as am
+        import dns_setup
+        name = str((payload or {}).get("name") or "").strip()
+        action = str((payload or {}).get("action") or "").strip()
+        if action not in ("enable", "disable", "check"):
+            raise SettingsError("действие: enable, disable или check")
+        cfg = am.load_config(self.config_path, allow_empty=True)
+        srv = next((s for s in cfg.servers if s.name == name), None)
+        if srv is None:
+            raise SettingsError("неизвестный сервер")
+        remote = self.dns_remote_factory(srv) if self.dns_remote_factory else None
+        return dns_setup.run_for_server(srv, action, runner_factory=self.runner_factory, remote=remote)
