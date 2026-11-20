@@ -14,7 +14,7 @@ Amnezia Monitor показывает состояние ваших сервер�
 
 [![Скачать для Windows](https://img.shields.io/badge/%D0%A1%D0%BA%D0%B0%D1%87%D0%B0%D1%82%D1%8C%20%D0%B4%D0%BB%D1%8F%20Windows-zip-2ea44f?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/freeon1989/amnezia-monitor/releases/download/v1.2.0/AmneziaMonitor-win-x64-v1.2.0.zip)
 [![Скачать для Android](https://img.shields.io/badge/%D0%A1%D0%BA%D0%B0%D1%87%D0%B0%D1%82%D1%8C%20%D0%B4%D0%BB%D1%8F%20Android-apk-3DDC84?style=for-the-badge&logo=android&logoColor=white)](https://github.com/freeon1989/amnezia-monitor/releases/download/v1.2.0/AmneziaMonitor-android-v1.2.0.apk)
-[![Скачать для macOS](https://img.shields.io/badge/%D0%A1%D0%BA%D0%B0%D1%87%D0%B0%D1%82%D1%8C%20%D0%B4%D0%BB%D1%8F%20macOS-dmg-111111?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/freeon1989/amnezia-monitor/releases/download/v1.1.0/AmneziaMonitor-macos.dmg)
+[![Скачать для macOS](https://img.shields.io/badge/%D0%A1%D0%BA%D0%B0%D1%87%D0%B0%D1%82%D1%8C%20%D0%B4%D0%BB%D1%8F%20macOS-dmg-111111?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/freeon1989/amnezia-monitor/releases/download/v1.2.0/AmneziaMonitor-macos-v1.2.0.dmg)
 [![версия](https://img.shields.io/github/v/release/freeon1989/amnezia-monitor?style=for-the-badge&label=%D0%B2%D0%B5%D1%80%D1%81%D0%B8%D1%8F&color=1f6feb)](https://github.com/freeon1989/amnezia-monitor/releases/latest)
 
 ### Windows
@@ -39,7 +39,7 @@ Amnezia Monitor показывает состояние ваших сервер�
 
 ### macOS
 
-Образ [AmneziaMonitor-macos.dmg](https://github.com/freeon1989/amnezia-monitor/releases/download/v1.1.0/AmneziaMonitor-macos.dmg) или архив [AmneziaMonitor-macos.zip](https://github.com/freeon1989/amnezia-monitor/releases/download/v1.1.0/AmneziaMonitor-macos.zip) (рядом лежат файлы `.sha256`). Приложение-спутник для macOS 13 и новее: значок в строке меню, те же данные панели. Нужны доступ из локальной сети и токен из настроек Windows. Сборка не подписана: первый запуск через правый щелчок и пункт «Открыть». Версия 1.2.0 для macOS (смена ключа хоста с отпечатками и кнопкой «Доверять новому ключу», журнал Amnezia Unbound) собирается GitHub Actions (`.github/workflows/build-macos.yml`) — Linux-сборщик не умеет делать приложения macOS.
+Образ [AmneziaMonitor-macos-v1.2.0.dmg](https://github.com/freeon1989/amnezia-monitor/releases/download/v1.2.0/AmneziaMonitor-macos-v1.2.0.dmg) или архив [AmneziaMonitor-macos-v1.2.0.zip](https://github.com/freeon1989/amnezia-monitor/releases/download/v1.2.0/AmneziaMonitor-macos-v1.2.0.zip) (рядом лежат файлы `.sha256`). Приложение-спутник для macOS 13 и новее: значок в строке меню, те же данные панели. Нужны доступ из локальной сети и токен из настроек Windows. Сборка не подписана: первый запуск через правый щелчок и пункт «Открыть». Версия 1.2.0: смена ключа хоста с отпечатками и кнопкой «Доверять новому ключу», журнал Amnezia Unbound. Собирается GitHub Actions (`.github/workflows/build-macos.yml`).
 
 ## Скриншоты
 
