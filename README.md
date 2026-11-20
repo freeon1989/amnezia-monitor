@@ -12,8 +12,8 @@ Amnezia Monitor показывает состояние ваших сервер�
 
 ## Скачать
 
-[![Скачать для Windows](https://img.shields.io/badge/%D0%A1%D0%BA%D0%B0%D1%87%D0%B0%D1%82%D1%8C%20%D0%B4%D0%BB%D1%8F%20Windows-zip-2ea44f?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/freeon1989/amnezia-monitor/releases/download/v1.1.0/AmneziaMonitor-win-x64-dns-fixed.zip)
-[![Скачать для Android](https://img.shields.io/badge/%D0%A1%D0%BA%D0%B0%D1%87%D0%B0%D1%82%D1%8C%20%D0%B4%D0%BB%D1%8F%20Android-apk-3DDC84?style=for-the-badge&logo=android&logoColor=white)](https://github.com/freeon1989/amnezia-monitor/releases/download/v1.1.0/AmneziaMonitor-android.apk)
+[![Скачать для Windows](https://img.shields.io/badge/%D0%A1%D0%BA%D0%B0%D1%87%D0%B0%D1%82%D1%8C%20%D0%B4%D0%BB%D1%8F%20Windows-zip-2ea44f?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/freeon1989/amnezia-monitor/releases/download/v1.2.0/AmneziaMonitor-win-x64-v1.2.0.zip)
+[![Скачать для Android](https://img.shields.io/badge/%D0%A1%D0%BA%D0%B0%D1%87%D0%B0%D1%82%D1%8C%20%D0%B4%D0%BB%D1%8F%20Android-apk-3DDC84?style=for-the-badge&logo=android&logoColor=white)](https://github.com/freeon1989/amnezia-monitor/releases/download/v1.2.0/AmneziaMonitor-android-v1.2.0.apk)
 [![Скачать для macOS](https://img.shields.io/badge/%D0%A1%D0%BA%D0%B0%D1%87%D0%B0%D1%82%D1%8C%20%D0%B4%D0%BB%D1%8F%20macOS-dmg-111111?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/freeon1989/amnezia-monitor/releases/download/v1.1.0/AmneziaMonitor-macos.dmg)
 [![версия](https://img.shields.io/github/v/release/freeon1989/amnezia-monitor?style=for-the-badge&label=%D0%B2%D0%B5%D1%80%D1%81%D0%B8%D1%8F&color=1f6feb)](https://github.com/freeon1989/amnezia-monitor/releases/latest)
 
@@ -21,7 +21,7 @@ Amnezia Monitor показывает состояние ваших сервер�
 
 Готовая программа для 64-битной Windows. Python ставить не нужно.
 
-Прямая ссылка на текущий архив (v1.1.0): [AmneziaMonitor-win-x64-dns-fixed.zip](https://github.com/freeon1989/amnezia-monitor/releases/download/v1.1.0/AmneziaMonitor-win-x64-dns-fixed.zip). Рядом лежит [файл контрольной суммы .sha256](https://github.com/freeon1989/amnezia-monitor/releases/download/v1.1.0/AmneziaMonitor-win-x64-dns-fixed.zip.sha256).
+Прямая ссылка на текущий архив (v1.2.0): [AmneziaMonitor-win-x64-v1.2.0.zip](https://github.com/freeon1989/amnezia-monitor/releases/download/v1.2.0/AmneziaMonitor-win-x64-v1.2.0.zip). Рядом лежит [файл контрольной суммы .sha256](https://github.com/freeon1989/amnezia-monitor/releases/download/v1.2.0/AmneziaMonitor-win-x64-v1.2.0.zip.sha256).
 
 1. Скачайте zip.
 2. Распакуйте архив в любую папку.
@@ -29,15 +29,17 @@ Amnezia Monitor показывает состояние ваших сервер�
 
 **SmartScreen.** Файл не подписан, поэтому Windows может показать «Windows защитила ваш компьютер». Нажмите «Подробнее», затем «Выполнить в любом случае».
 
-**WebView2.** Окно программы рисуется компонентом Microsoft Edge WebView2. На Windows 10 и 11 он обычно уже установлен. Если окно не открылось, поставьте бесплатный [WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/) и запустите программу снова. Внешний браузер при этом сам не открывается.
+**WebView2.** Окно программы рисуется компонентом Microsoft Edge WebView2. На Windows 10 и 11 он обычно уже установлен. Если окно не открылось, поставьте бесплатный [WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/) и запустите программу снова. Программа объяснит причину и спросит, открыть ли панель во внешнем браузере: браузер — только запасной вариант и только с вашего согласия.
+
+**Смена ключа сервера.** Если SSH-ключ сервера не совпадает с сохранённым (переустановка системы, пересоздание сервера у хостера — или перехват), вход останавливается до отправки пароля. «Настройки → Проверить подключение» показывает сохранённый и новый отпечатки SHA256 и кнопку «Доверять новому ключу». Сверьте новый отпечаток на самом сервере (`ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub`) и только потом подтверждайте. Ключ заменяется, только если сервер в этот момент показывает тот же отпечаток.
 
 ### Android
 
-Файл [AmneziaMonitor-android.apk](https://github.com/freeon1989/amnezia-monitor/releases/download/v1.1.0/AmneziaMonitor-android.apk) ([.sha256](https://github.com/freeon1989/amnezia-monitor/releases/download/v1.1.0/AmneziaMonitor-android.apk.sha256)). Приложение-спутник: показывает данные панели Windows по локальной сети. На компьютере включите доступ из локальной сети и скопируйте токен в настройках. Это отладочная сборка: разрешите установку из неизвестных источников.
+Файл [AmneziaMonitor-android-v1.2.0.apk](https://github.com/freeon1989/amnezia-monitor/releases/download/v1.2.0/AmneziaMonitor-android-v1.2.0.apk) ([.sha256](https://github.com/freeon1989/amnezia-monitor/releases/download/v1.2.0/AmneziaMonitor-android-v1.2.0.apk.sha256)). В v1.2.0: смена ключа SSH сервера показывается со старым и новым отпечатками и кнопкой «Доверять новому ключу», «Сайты» читают журнал Amnezia Unbound. Если Android не ставит APK поверх старой версии (другая подпись отладочной сборки), удалите старую версию и установите заново. Приложение-спутник: показывает данные панели Windows по локальной сети. На компьютере включите доступ из локальной сети и скопируйте токен в настройках. Это отладочная сборка: разрешите установку из неизвестных источников.
 
 ### macOS
 
-Образ [AmneziaMonitor-macos.dmg](https://github.com/freeon1989/amnezia-monitor/releases/download/v1.1.0/AmneziaMonitor-macos.dmg) или архив [AmneziaMonitor-macos.zip](https://github.com/freeon1989/amnezia-monitor/releases/download/v1.1.0/AmneziaMonitor-macos.zip) (рядом лежат файлы `.sha256`). Приложение-спутник для macOS 13 и новее: значок в строке меню, те же данные панели. Нужны доступ из локальной сети и токен из настроек Windows. Сборка не подписана: первый запуск через правый щелчок и пункт «Открыть».
+Образ [AmneziaMonitor-macos.dmg](https://github.com/freeon1989/amnezia-monitor/releases/download/v1.1.0/AmneziaMonitor-macos.dmg) или архив [AmneziaMonitor-macos.zip](https://github.com/freeon1989/amnezia-monitor/releases/download/v1.1.0/AmneziaMonitor-macos.zip) (рядом лежат файлы `.sha256`). Приложение-спутник для macOS 13 и новее: значок в строке меню, те же данные панели. Нужны доступ из локальной сети и токен из настроек Windows. Сборка не подписана: первый запуск через правый щелчок и пункт «Открыть». Версия 1.2.0 для macOS (смена ключа хоста с отпечатками и кнопкой «Доверять новому ключу», журнал Amnezia Unbound) собирается GitHub Actions (`.github/workflows/build-macos.yml`) — Linux-сборщик не умеет делать приложения macOS.
 
 ## Скриншоты
 
@@ -122,6 +124,8 @@ servers.yaml ─► amnezia_monitor.py ── SSH (paramiko, пароль или
 | `deploy/windows-task.ps1` | задача Планировщика Windows |
 | `app_main.py` | режим приложения (`.exe`): мониторинг + панель + настройки, значок в трее, одно окно |
 | `app_window.py` | окно Windows на WebView2 |
+| `hostkeys.py` | ключи хостов SSH: свой known_hosts, отпечатки, «Доверять новому ключу» |
+| `android/`, `macos/` | клиенты для Android и macOS (сборка — `.github/workflows/`) |
 | `app_settings.py` | страница «Настройки»: проверка полей, сохранение `servers.yaml`, «Проверить подключение» |
 | `dns_setup.py` | включение, проверка и отключение DNS-журнала по SSH из приложения |
 | `secrets_store.py` | шифрование паролей: Windows DPAPI (текущий пользователь), иначе файл с правами 600 |
@@ -171,8 +175,11 @@ nano servers.yaml        # свои IP, пользователи и пароли
 - **Никогда не коммитьте** `servers.yaml` и `.env`. Они уже есть в `.gitignore`.
 - Пароли не пишутся в лог, в базу и в уведомления. При ошибке входа выводится только тип ошибки,
   например `SSH: AuthenticationException`.
-- Ключ хоста при первом подключении запоминается в `~/.ssh/known_hosts`. Для строгого режима сначала добавьте
-  хосты сами (`ssh-keyscan`) и задайте `AMNEZIA_STRICT_HOSTKEY=1`.
+- Ключ хоста при первом подключении запоминается в своём файле `known_hosts` программы (Windows:
+  `%APPDATA%\AmneziaMonitor\known_hosts`, Linux: `~/.amnezia-monitor/known_hosts` или `AMNEZIA_KNOWN_HOSTS`).
+  `~/.ssh/known_hosts` только читается и не перезаписывается. Тип ключа согласуется с сохранённым, поэтому
+  ложной «смены ключа» из-за RSA/ECDSA/ED25519 нет. При настоящей смене вход останавливается до отправки пароля.
+  Для строгого режима сначала добавьте хосты сами (`ssh-keyscan`) и задайте `AMNEZIA_STRICT_HOSTKEY=1`.
 
 ### Какие права нужны на сервере
 

@@ -32,6 +32,7 @@ if not getattr(sys, "frozen", False):
 import amnezia_monitor as am   # noqa: E402
 import app_settings            # noqa: E402
 import app_window              # noqa: E402
+import hostkeys                 # noqa: E402
 import dashboard               # noqa: E402
 
 log = logging.getLogger("amnezia_monitor.app")
@@ -326,6 +327,8 @@ def run(args) -> int:
 
     config_path = data_dir / "servers.yaml"
     db_path = data_dir / "amnezia_monitor.db"
+    # Свой known_hosts программы; ~/.ssh/known_hosts только читается.
+    hostkeys.set_store_path(data_dir / "known_hosts")
     if demo:
         import demo_data
         demo_data.demo_store(str(db_path))
@@ -394,6 +397,8 @@ def run(args) -> int:
         ui.watch_show_requests(lock, stop)
         opened = ui.run(open_url, on_ready=start_tray)
         if not opened and not stop.is_set():
+            if ui.browser_wanted:          # запасной вариант — только с согласия пользователя
+                webbrowser.open(open_url)
             start_tray()
             if ui.tray_running:
                 _wait_until_stopped(stop)

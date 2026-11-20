@@ -407,14 +407,45 @@ function serverForm(){
     <button class="btn ghost" onclick="editing=null;testRes.form=null;renderSettings()">Отмена</button>
     ${saved? `<label style="font-size:12px;color:var(--muted);display:flex;gap:6px;align-items:center"><input type="checkbox" id="f_clear"> удалить сохранённый пароль</label>`:""}
   </div>
-  ${stepsHtml(testRes.form)}
+  ${stepsHtml(testRes.form, "form")}
   </div>`;
 }
-function stepsHtml(t){
+function hostkeyHtml(t, slot){
+  const h = t.hostkey; if(!h || !h.new) return "";
+  const where = esc(h.host) + (h.port!==22? ":"+h.port : "");
+  const olds = (h.old||[]).map(k=>`<li><span class="st">${esc(k.type)}</span><code>${esc(k.fingerprint)}</code></li>`).join("");
+  const st = t.trust || {};
+  return `<div class="msg err hostkey" style="margin-top:10px">
+    <b>Ключ SSH сервера ${where} не совпадает с сохранённым.</b> Подключение остановлено до входа — пароль на сервер не отправлялся.
+    ${h.type_changed? "<br>Сервер показал ключ другого типа, чем сохранён." : ""}
+    <div style="margin-top:8px">Сохранённый ключ (${esc(h.source)}):</div><ul class="steps">${olds || "<li>—</li>"}</ul>
+    <div>Ключ, который сервер показывает сейчас:</div>
+    <ul class="steps"><li><span class="st">${esc(h.new.type)}</span><code id="hk_new_${slot}">${esc(h.new.fingerprint)}</code></li></ul>
+    <div class="hint" style="margin:6px 0">Ключ меняется после переустановки системы или пересоздания сервера у хостера. Если вы этого не делали —
+      не доверяйте: возможен перехват. Сверьте отпечаток на самом сервере: <code>ssh-keygen -lf /etc/ssh/ssh_host_${esc((h.new.type||"").toLowerCase())}_key.pub</code></div>
+    <div class="actions"><button class="btn danger sm" id="hk_btn_${slot}" ${st.pending? "disabled":""} onclick="trustHostKey('${slot}')">Доверять новому ключу</button></div>
+    ${st.err? `<div class="msg err">${esc(st.err)}</div>` : ""}
+  </div>`;
+}
+async function trustHostKey(slot){
+  const t = testRes[slot]; if(!t || !t.hostkey) return;
+  const h = t.hostkey;
+  const ok = confirm(`Заменить сохранённый ключ сервера ${h.host}${h.port!==22? ":"+h.port:""}?\n\nНовый ключ: ${h.new.type} ${h.new.fingerprint}\n\nНажимайте «ОК», только если отпечаток совпадает с ключом на самом сервере.`);
+  if(!ok) return;
+  const keepVals = slot==="form" && editing ? formServer() : null;
+  t.trust = {pending:true}; renderSettings(); if(keepVals) restoreForm(keepVals);
+  try{
+    await api("POST","/api/settings/trust-hostkey",{host:h.host, port:h.port, fingerprint:h.new.fingerprint, confirm:true});
+  }catch(e){ t.trust = {err:"Ключ не заменён: "+e.message}; renderSettings(); if(keepVals) restoreForm(keepVals); return; }
+  if(slot==="form") return testServer();
+  return testRow(+slot.slice(1));
+}
+function stepsHtml(t, slot){
   if(!t) return "";
   if(t.pending) return `<div class="msg" style="color:var(--muted)">Проверяю: TCP → вход по SSH → docker ps… (только чтение)</div>`;
   if(t.error) return `<div class="msg err">${esc(t.error)}</div>`;
   return `<ul class="steps">${t.steps.map(s=>`<li><span>${s.ok?"✅":"❌"}</span><span class="st">${esc(s.step)}</span><span style="color:var(--muted)">${esc(s.detail)}</span></li>`).join("")}</ul>
+    ${hostkeyHtml(t, slot)}
     <div class="msg ${t.ok?"ok":"err"}">${t.ok? "Подключение работает. Агент будет только читать данные, ничего не меняя на сервере." : "Есть проблемы — см. шаги выше."}</div>`;
 }
 function renderSettings(){
@@ -430,7 +461,7 @@ function renderSettings(){
         <button class="btn ghost sm" onclick="testRow(${i})">Проверить</button>
         <button class="btn ghost sm" onclick="editRow(${i})">Изменить</button>
         <button class="btn danger sm" onclick="delRow(${i})">Удалить</button></td></tr>
-      ${testRes["r"+i]? `<tr><td colspan="4">${stepsHtml(testRes["r"+i])}</td></tr>`:""}`).join("");
+      ${testRes["r"+i]? `<tr><td colspan="4">${stepsHtml(testRes["r"+i], "r"+i)}</td></tr>`:""}`).join("");
   v.innerHTML = welcome + `<div class="set-grid"><div>
     <div class="card"><h3><span>Серверы</span><button class="btn sm" onclick="editing={isNew:true,port:22,user:'root'};testRes.form=null;renderSettings()">+ Добавить сервер</button></h3>
       ${S.servers.length? `<div class="tablewrap"><table><thead><tr><th>Сервер</th><th>Подключение</th><th>Вход</th><th></th></tr></thead><tbody>${rows}</tbody></table></div>`

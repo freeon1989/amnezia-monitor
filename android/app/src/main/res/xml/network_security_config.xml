@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Панель на компьютере обычно http://IP:8765 без TLS.
+  Ясный HTTP разрешён, потому что адрес вводит сам пользователь (LAN или VPN).
+  Не публикуйте этот порт в интернет.
+-->
+<network-security-config>
+    <base-config cleartextTrafficPermitted="true">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

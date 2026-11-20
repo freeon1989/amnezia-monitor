@@ -1,8 +1,9 @@
 # -*- coding: utf-8 -*-
-"""Окно приложения Windows: встроенный Edge WebView2, без внешнего браузера.
+"""Окно приложения Windows: встроенный Edge WebView2, а не внешний браузер.
 
 Панель по-прежнему открывается только как http://127.0.0.1 (сервер поднимает app_main).
-Если среды WebView2 нет, показывается понятное сообщение и браузер сам не открывается.
+Если окно создать нельзя (нет WebView2 и т.п.), показывается понятное сообщение с вопросом,
+открыть ли панель в браузере. Браузер — только запасной вариант и только с согласия пользователя.
 """
 from __future__ import annotations
 
@@ -18,9 +19,10 @@ MISSING_RUNTIME_TEXT = (
     "Не найден Microsoft Edge WebView2 Runtime, поэтому окно Amnezia Monitor не открыто.\n\n"
     "Установите бесплатный компонент «WebView2 Runtime» с сайта Microsoft и запустите программу снова:\n"
     "https://developer.microsoft.com/microsoft-edge/webview2/\n\n"
-    "Внешний браузер не открывается. Если значок программы есть у часов, мониторинг продолжается; "
-    "остановить его можно пунктом «Выход»."
+    "Мониторинг продолжается (значок у часов, пункт «Выход» его останавливает).\n\n"
+    "Открыть панель во внешнем браузере вместо окна программы?"
 )
+FALLBACK_QUESTION = "\n\nОткрыть панель во внешнем браузере вместо окна программы?"
 
 
 def wants_desktop_window(no_browser: bool, platform: str | None = None) -> bool:
@@ -58,15 +60,18 @@ def webview2_runtime_installed() -> bool:
     return False
 
 
-def default_message_box(text: str) -> None:
+def default_message_box(text: str) -> bool:
+    """Сообщение с вопросом «Да/Нет». True — пользователь согласился открыть браузер."""
     log.error("%s", text.replace("\n", " "))
     if not sys.platform.startswith("win"):
-        return
+        return False
     try:
         import ctypes
-        ctypes.windll.user32.MessageBoxW(None, text, "Amnezia Monitor", 0x00000010)
+        # MB_YESNO | MB_ICONWARNING; IDYES = 6
+        return ctypes.windll.user32.MessageBoxW(None, text, "Amnezia Monitor", 0x00000004 | 0x00000030) == 6
     except Exception:
         log.exception("Не удалось показать сообщение об ошибке")
+        return False
 
 
 class DesktopWindow:
@@ -79,10 +84,16 @@ class DesktopWindow:
         self.tray_running = False
         self.window = None
         self.failure = None
+        self.browser_wanted = False
 
     def explain_missing_runtime(self) -> None:
         self.failure = "webview2-missing"
-        self.presenter(MISSING_RUNTIME_TEXT)
+        self.ask(MISSING_RUNTIME_TEXT)
+
+    def ask(self, text: str) -> bool:
+        """Показать причину и спросить про браузер. Ответ запоминается в browser_wanted."""
+        self.browser_wanted = bool(self.presenter(text))
+        return self.browser_wanted
 
     def on_closing(self):
         """False отменяет закрытие. Вызывается из потока окна, поэтому hide — следом, не сразу."""
@@ -147,10 +158,7 @@ class DesktopWindow:
             import webview
         except Exception as e:
             self.failure = "webview-import"
-            self.presenter(
-                "Не удалось загрузить окно программы (%s).\n"
-                "Внешний браузер не открывается." % type(e).__name__
-            )
+            self.ask("Не удалось загрузить окно программы (%s)." % type(e).__name__ + FALLBACK_QUESTION)
             log.exception("import webview")
             return False
 
@@ -195,17 +203,12 @@ class DesktopWindow:
             )
         except Exception as e:
             self.failure = "webview-start"
-            self.presenter(
-                "Окно Amnezia Monitor не запустилось (%s).\nВнешний браузер не открывается."
-                % type(e).__name__
-            )
+            self.ask("Окно Amnezia Monitor не запустилось (%s)." % type(e).__name__ + FALLBACK_QUESTION)
             log.exception("webview.start")
             self.window = None
             return False
         if self.failure and str(self.failure).startswith("renderer-"):
-            self.presenter(
-                "Окно открылось не на Edge WebView2 (%s), поэтому оно закрыто.\n"
-                "Установите WebView2 Runtime. Внешний браузер не открывается." % self.failure
-            )
+            self.ask("Окно открылось не на Edge WebView2 (%s), поэтому оно закрыто.\n"
+                     "Установите WebView2 Runtime." % self.failure + FALLBACK_QUESTION)
             return False
         return True

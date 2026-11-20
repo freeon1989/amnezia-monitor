@@ -186,6 +186,12 @@ def server_for_test(raw: dict, item: dict):
 
 def _ssh_error_text(e: Exception) -> str:
     n = type(e).__name__
+    if n == "HostKeyMismatch":
+        if getattr(e, "type_changed", False):
+            return "сервер показал ключ другого типа, чем сохранённый — вход остановлен до отправки пароля"
+        return "ключ сервера не совпадает с сохранённым — вход остановлен до отправки пароля"
+    if n == "BadHostKeyException":
+        return "ключ сервера не совпадает с сохранённым"
     if n == "AuthenticationException" or n == "BadAuthenticationType":
         return "SSH отклонил вход: неверный пользователь, пароль или ключ"
     if n in ("NoValidConnectionsError",) or isinstance(e, ConnectionRefusedError):
@@ -224,7 +230,10 @@ def test_connection(srv, runner_factory=None, tcp=None) -> dict:
                       "detail": f"{round((time.monotonic() - t0) * 1000)} мс"})
     except Exception as e:
         steps.append({"step": f"Вход по SSH ({srv.user})", "ok": False, "detail": _ssh_error_text(e)})
-        return {"ok": False, "steps": steps}
+        res = {"ok": False, "steps": steps}
+        if type(e).__name__ == "HostKeyMismatch":
+            res["hostkey"] = e.as_dict()
+        return res
     try:
         cmd = am.READ_ONLY_COMMANDS["docker_ps"].format(docker=srv.docker_cmd)
         rc, out, err = runner.run(cmd)
@@ -252,7 +261,8 @@ class SettingsContext:
     """Всё, что нужно HTTP-обработчику для страницы настроек (только в режиме приложения)."""
 
     def __init__(self, config_path, token: str, data_dir: str = "", on_saved=None, on_quit=None,
-                 runner_factory=None, tcp=None, app_mode: bool = True, dns_remote_factory=None):
+                 runner_factory=None, tcp=None, app_mode: bool = True, dns_remote_factory=None,
+                 hostkey_fetch=None):
         self.config_path = str(config_path)
         self.token = token
         self.data_dir = data_dir
@@ -262,6 +272,7 @@ class SettingsContext:
         self.tcp = tcp
         self.app_mode = app_mode
         self.dns_remote_factory = dns_remote_factory
+        self.hostkey_fetch = hostkey_fetch
 
     def get(self) -> dict:
         v = public_view(read_raw(self.config_path))
@@ -280,6 +291,26 @@ class SettingsContext:
     def test(self, payload: dict) -> dict:
         srv = server_for_test(read_raw(self.config_path), payload.get("server") or {})
         return test_connection(srv, self.runner_factory, self.tcp)
+
+    def trust_hostkey(self, payload: dict) -> dict:
+        """«Доверять новому ключу»: только после явного подтверждения и сверки отпечатка."""
+        import hostkeys
+        p = payload or {}
+        host = str(p.get("host") or "").strip()
+        try:
+            port = int(p.get("port") or 22)
+        except (TypeError, ValueError):
+            raise SettingsError("неверный порт")
+        if not host or not HOST_RE.match(host) or not (1 <= port <= 65535):
+            raise SettingsError("неверный адрес сервера")
+        try:
+            return hostkeys.trust_new_key(host, port, str(p.get("fingerprint") or ""),
+                                          confirmed=p.get("confirm") is True,
+                                          **({"fetch": self.hostkey_fetch} if self.hostkey_fetch else {}))
+        except hostkeys.TrustError as e:
+            raise SettingsError(str(e))
+        except OSError:
+            raise SettingsError("сервер недоступен — ключ не заменён")
 
     def dns_log(self, payload: dict) -> dict:
         """Включить / проверить / выключить DNS-журнал на уже сохранённом сервере."""

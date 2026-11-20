@@ -361,7 +361,19 @@ class AppMode(unittest.TestCase):
             self.assertFalse(ui.run("http://127.0.0.1:9/"))
         self.assertEqual(ui.failure, "webview2-missing")
         self.assertIn("WebView2", notes[0])
-        self.assertIn("не открывается", notes[0])
+        self.assertIn("браузере", notes[0])
+        self.assertFalse(ui.browser_wanted)        # без ответа «Да» браузер не открывается
+
+    def test_browser_is_only_a_fallback_after_yes(self):
+        ui = app_window.DesktopWindow(Path(tempfile.mkdtemp()), presenter=lambda text: True)
+        with mock.patch.object(app_window, "webview2_runtime_installed", return_value=False):
+            self.assertFalse(ui.run("http://127.0.0.1:9/"))
+        self.assertTrue(ui.browser_wanted)
+
+    def test_windows_launch_prefers_window(self):
+        self.assertTrue(app_window.wants_desktop_window(False, "win32"))
+        self.assertFalse(app_window.wants_desktop_window(True, "win32"))
+        self.assertFalse(app_window.wants_desktop_window(False, "linux"))
 
     def test_tray_icon_image(self):
         try:

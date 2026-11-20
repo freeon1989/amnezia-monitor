@@ -548,33 +548,44 @@ class Runner:
 class SSHRunner(Runner):
     def __init__(self, srv: ServerCfg):
         import paramiko  # импорт здесь, чтобы --demo и тесты работали без paramiko
+        import hostkeys
         self.srv = srv
         self.client = paramiko.SSHClient()
-        self.client.load_system_host_keys()
-        kh = Path(os.path.expanduser("~/.ssh/known_hosts"))
-        if kh.is_file():
-            try:
-                self.client.load_host_keys(str(kh))
-            except Exception:
-                pass
-        # Первый вход: ключ хоста запоминается (TOFU). Для строгой проверки
-        # установите AMNEZIA_STRICT_HOSTKEY=1 и заранее добавьте хосты в known_hosts.
-        if os.environ.get("AMNEZIA_STRICT_HOSTKEY") == "1":
-            self.client.set_missing_host_key_policy(paramiko.RejectPolicy())
-        else:
-            self.client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        self.client.connect(
-            hostname=srv.host, port=srv.port, username=srv.user,
-            key_filename=srv.key_path or None, password=srv.password or None,
-            look_for_keys=not srv.password and not srv.key_path,
-            allow_agent=not srv.password,
-            timeout=srv.timeout, banner_timeout=srv.timeout, auth_timeout=srv.timeout,
-        )
+        # Ключи хостов проверяет hostkeys.VerifyPolicy: свой known_hosts программы, затем (только
+        # чтение) ~/.ssh/known_hosts. В SSHClient ключи не загружаются, поэтому paramiko всегда
+        # передаёт ключ сервера в политику — до входа, пароль на чужой ключ не уходит.
+        # Первый вход запоминает ключ (TOFU); AMNEZIA_STRICT_HOSTKEY=1 запрещает неизвестные хосты.
+        known, source = hostkeys.lookup(srv.host, srv.port)
+        policy = hostkeys.VerifyPolicy(srv.host, srv.port, known, source,
+                                       strict=os.environ.get("AMNEZIA_STRICT_HOSTKEY") == "1")
+        self.client.set_missing_host_key_policy(policy)
         try:
-            if kh.parent.is_dir():
-                self.client.save_host_keys(str(kh))
+            self.client.connect(
+                hostname=srv.host, port=srv.port, username=srv.user,
+                key_filename=srv.key_path or None, password=srv.password or None,
+                look_for_keys=not srv.password and not srv.key_path,
+                allow_agent=not srv.password,
+                timeout=srv.timeout, banner_timeout=srv.timeout, auth_timeout=srv.timeout,
+                disabled_algorithms=hostkeys.disabled_algorithms_for(known),
+            )
+        except paramiko.SSHException as e:
+            # Сервер больше не предлагает ни одного из известных типов ключа: это тоже смена ключа.
+            if known and "host key" in str(e).lower() and not isinstance(e, paramiko.AuthenticationException):
+                self.client.close()
+                new_key = hostkeys.fetch_server_key(srv.host, srv.port, timeout=srv.timeout)
+                raise hostkeys.HostKeyMismatch(srv.host, srv.port, new_key,
+                                               hostkeys.known_fingerprints(known), source,
+                                               type_changed=True) from None
+            self.client.close()
+            raise
         except Exception:
-            pass
+            self.client.close()
+            raise
+        if policy.accepted_new is not None:
+            try:
+                hostkeys.remember_first_key(srv.host, srv.port, policy.accepted_new)
+            except Exception:
+                log.warning("Не удалось сохранить ключ хоста %s", srv.host)
 
     def run(self, cmd: str) -> tuple:
         if not _ALLOWED_RE.match(cmd):
@@ -717,7 +728,11 @@ def collect(srv: ServerCfg, runner_factory: Callable[[ServerCfg], Runner], now: 
     try:
         runner = runner_factory(srv)
     except Exception as e:  # ошибки аутентификации/сети; пароль в текст не попадает
-        res.error = f"SSH: {type(e).__name__}"
+        if type(e).__name__ == "HostKeyMismatch":
+            res.error = ("SSH: ключ сервера изменился, опрос остановлен. Сверьте отпечаток в "
+                         "Настройки → Проверить и нажмите «Доверять новому ключу», если смена ожидаема")
+        else:
+            res.error = f"SSH: {type(e).__name__}"
         return res
     try:
         res.ssh_ok = True

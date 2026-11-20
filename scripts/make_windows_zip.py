@@ -2,7 +2,10 @@ import hashlib, zipfile, sys
 from pathlib import Path
 stage = Path(sys.argv[1])
 zip_path = Path(sys.argv[2])
-root = stage / "AmneziaMonitor-win-x64-dns-journal"
+dirs = [d for d in stage.iterdir() if d.is_dir()]
+if len(dirs) != 1:
+    raise SystemExit("в каталоге сборки должна быть ровно одна папка программы")
+root = dirs[0]
 zip_path.parent.mkdir(parents=True, exist_ok=True)
 if zip_path.exists():
     zip_path.unlink()

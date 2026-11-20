@@ -525,6 +525,9 @@ def run_for_server(srv, action: str, runner_factory=None, remote: Remote = None)
             msg = "соединение отклонено"
         elif isinstance(e, (TimeoutError, OSError)):
             msg = "не удалось подключиться по SSH"
+        elif name == "HostKeyMismatch":
+            msg = ("ключ сервера изменился — подключение остановлено до входа. "
+                   "Сверьте отпечаток в Настройки → Проверить подключение")
         else:
             msg = f"{name}: {e}"
         return {"ok": False, "message": msg, "lines": []}

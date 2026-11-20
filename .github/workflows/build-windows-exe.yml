@@ -6,7 +6,11 @@ name: Build Windows EXE
 on:
   push:
     branches:
+      - "main"
       - "cursor/**"
+    tags:
+      - "v*"
+  workflow_dispatch:
 
 concurrency:
   group: windows-exe-${{ github.ref }}
@@ -140,6 +144,8 @@ jobs:
               "six",
               "_ssl",
               "app_window",
+              "hostkeys",
+              "dns_setup",
               "edgechromium",
               "webview2loader",
           ]
@@ -534,7 +540,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $stage = Join-Path $env:RUNNER_TEMP 'amnezia-pkg'
-          $root = Join-Path $stage 'AmneziaMonitor-win-x64-dns-fixed'
+          $root = Join-Path $stage 'AmneziaMonitor-win-x64-v1.2.0'
           if (Test-Path $stage) { Remove-Item -Recurse -Force $stage }
           New-Item -ItemType Directory -Path $root | Out-Null
           Copy-Item dist\AmneziaMonitor.exe (Join-Path $root 'AmneziaMonitor.exe')
@@ -549,7 +555,10 @@ jobs:
           Значок в трее: «Открыть панель» снова показывает то же окно, «Папка с данными», «Выход».
           Повторный запуск не создаёт вторую копию, а показывает уже открытое окно.
           Нужен Microsoft Edge WebView2 Runtime (он уже есть в Windows 11 и в новых Windows 10).
-          Если его нет, программа покажет сообщение и не откроет внешний браузер.
+          Если окно открыть нельзя (нет WebView2), программа объяснит причину и спросит,
+          открыть ли панель во внешнем браузере. Браузер — только запасной вариант.
+          Если ключ SSH сервера сменился, «Настройки → Проверить» покажет старый и новый
+          отпечатки и кнопку «Доверять новому ключу» (замена только после подтверждения).
           Раздел «Сайты» только читает уже ведущийся журнал Unbound в контейнере amnezia-dns.
 
           Настройки и база: %APPDATA%\AmneziaMonitor\
@@ -567,11 +576,11 @@ jobs:
           В этом архиве нет servers.yaml, .env, личных адресов серверов и паролей.
           '@
           [System.IO.File]::WriteAllText((Join-Path $root 'START.txt'), ($start.Trim() -replace "`n", "`r`n") + "`r`n")
-          $zip = Join-Path (Get-Location) 'dist\AmneziaMonitor-win-x64-dns-fixed.zip'
+          $zip = Join-Path (Get-Location) 'dist\AmneziaMonitor-win-x64-v1.2.0.zip'
           if (Test-Path $zip) { Remove-Item -Force $zip }
           Compress-Archive -Path $root -DestinationPath $zip
           $zipHash = (Get-FileHash -Algorithm SHA256 $zip).Hash.ToLower()
-          Set-Content -Encoding ascii -Path build-meta\zip-sha256.txt -Value "$zipHash  AmneziaMonitor-win-x64-dns-fixed.zip"
+          Set-Content -Encoding ascii -Path build-meta\zip-sha256.txt -Value "$zipHash  AmneziaMonitor-win-x64-v1.2.0.zip"
           Set-Content -Encoding ascii -Path build-meta\exe-sha256.txt -Value "$hash  AmneziaMonitor.exe"
           Write-Host "exe $hash"
           Write-Host "zip $zipHash"
@@ -579,9 +588,9 @@ jobs:
       - name: Upload distributable
         uses: actions/upload-artifact@v4
         with:
-          name: AmneziaMonitor-win-x64-dns-fixed
+          name: AmneziaMonitor-win-x64-v1.2.0
           path: |
-            dist/AmneziaMonitor-win-x64-dns-fixed.zip
+            dist/AmneziaMonitor-win-x64-v1.2.0.zip
             build-meta/**
           if-no-files-found: error
           retention-days: 14

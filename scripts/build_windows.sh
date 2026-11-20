@@ -6,10 +6,19 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
-WINE_BIN_DIR="${WINE_BIN_DIR:-$HOME/wine/wine-10.17-amd64-wow64/bin}"
-if [ -x "$WINE_BIN_DIR/wine" ]; then
+if [ -z "${WINE_BIN_DIR:-}" ]; then
+  for d in "$HOME/wine/wine-10.17-amd64-wow64/bin" "$HOME/wine/wine-10.17-amd64/bin"; do
+    if [ -x "$d/wine" ]; then WINE_BIN_DIR="$d"; break; fi
+  done
+fi
+if [ -n "${WINE_BIN_DIR:-}" ] && [ -x "$WINE_BIN_DIR/wine" ]; then
   export PATH="$WINE_BIN_DIR:$PATH"
 fi
+
+# Собирать только из полного дерева репозитория: без app_window.py exe открывал панель в браузере.
+for f in app_main.py app_window.py hostkeys.py dns_setup.py dashboard.html AmneziaMonitor.spec; do
+  [ -f "$ROOT/$f" ] || { echo "нет $f — это не полное дерево репозитория, сборка остановлена" >&2; exit 1; }
+done
 WINEPREFIX="${WINEPREFIX:-$HOME/.wine-amnezia}"
 export WINEPREFIX WINEARCH=win64 WINEDEBUG="${WINEDEBUG:--all}"
 export WINEDLLOVERRIDES="${WINEDLLOVERRIDES:-mscoree,mshtml=}"
@@ -19,7 +28,9 @@ CACHE="${CACHE:-$HOME/.cache/amnezia-wine}"
 INSTALLER="$CACHE/python-${PY_VERSION}-amd64.exe"
 URL="https://www.python.org/ftp/python/${PY_VERSION}/python-${PY_VERSION}-amd64.exe"
 OUT_DIR="${OUT_DIR:-$ROOT/dist}"
-ZIP_NAME="${ZIP_NAME:-AmneziaMonitor-win-x64-dns-journal.zip}"
+VERSION="${VERSION:-v1.2.0}"
+PKG="AmneziaMonitor-win-x64-${VERSION}"
+ZIP_NAME="${ZIP_NAME:-$PKG.zip}"
 STAGE="$ROOT/build/windows-zip"
 
 need() { command -v "$1" >/dev/null 2>&1 || { echo "нет команды: $1" >&2; exit 1; }; }
@@ -96,36 +107,56 @@ assert data[:2] == b"MZ", data[:8]
 print("PE check ok, size", p.stat().st_size)
 PY
 
+# В exe должны быть окно (pywebview + WebView2) и проверка ключей хостов.
+if command -v pyi-archive_viewer >/dev/null 2>&1; then
+  listing="$(pyi-archive_viewer -l -r "$ROOT/dist/AmneziaMonitor.exe" 2>/dev/null || true)"
+  for m in app_window hostkeys dns_setup webview.platforms.edgechromium WebView2Loader; do
+    echo "$listing" | grep -q "$m" || { echo "в exe нет модуля $m" >&2; exit 1; }
+  done
+  echo "modules check ok"
+else
+  echo "pyi-archive_viewer нет на Linux — проверка модулей пропущена" >&2
+fi
+
 echo "== zip =="
 rm -rf "$STAGE"
-mkdir -p "$STAGE/AmneziaMonitor-win-x64-dns-journal" "$OUT_DIR"
-cp "$ROOT/dist/AmneziaMonitor.exe" "$STAGE/AmneziaMonitor-win-x64-dns-journal/"
-cat > "$STAGE/AmneziaMonitor-win-x64-dns-journal/START.txt" << 'TXT'
-Amnezia Monitor — Windows x64
+mkdir -p "$STAGE/$PKG" "$OUT_DIR"
+cp "$ROOT/dist/AmneziaMonitor.exe" "$STAGE/$PKG/"
+cat > "$STAGE/$PKG/START.txt" << 'TXT'
+Amnezia Monitor — Windows x64 (v1.2.0)
 
 Запуск: двойной щелчок по AmneziaMonitor.exe.
-Откроется панель в браузере (http://127.0.0.1:8765). Настройки и база —
-в папке %APPDATA%\AmneziaMonitor. Повторный запуск не создаёт вторую
-копию, а открывает уже работающую панель.
+Панель открывается в своём окне программы (Microsoft Edge WebView2), а не в браузере.
+Крестик прячет окно в трей, мониторинг продолжается; «Открыть панель» в трее
+показывает окно снова, «Выход» закрывает программу. Повторный запуск не создаёт
+вторую копию, а показывает уже открытое окно.
+WebView2 Runtime уже есть в Windows 11 и в новых Windows 10. Если его нет, программа
+объяснит причину и спросит, открыть ли панель в браузере (только запасной вариант).
 
-Что нового в этой сборке
-- На карточке сервера кнопки «Включить DNS-журнал», «Проверить» и
-  «Отключить». Они по SSH сами настраивают журнал в контейнере
-  amnezia-dns: хранение около 24 часов, потолок 50 МБ, очистка каждые
-  15 минут.
-- Действие можно повторять: если журнал уже включён, конфиг не ломается.
-- Перезапускается только контейнер DNS и только если конфиг изменился.
-  VPN (AmneziaWG/WireGuard) и службы каскада (cascade-xray) не трогаются.
-- Панель читает журнал Unbound из файла рядом с конфигом и из архивов
-  за сутки (раньше брались только стандартные пути и лог контейнера).
+Настройки и база — в папке %APPDATA%\AmneziaMonitor (servers.yaml,
+amnezia_monitor.db, known_hosts, журнал).
 
-Учтите: журнал хранит домены, которые спрашивали устройства ваших
+Что нового в v1.2.0
+- Смена ключа SSH сервера. «Настройки → Проверить подключение» показывает
+  сохранённый и новый отпечатки SHA256 и кнопку «Доверять новому ключу».
+  Ключ заменяется только после подтверждения и только если сервер всё ещё
+  показывает тот же ключ. Пароль на сервер со сменившимся ключом не уходит.
+- Ключи хостов программа хранит в своём файле known_hosts в папке данных.
+  Файл ~/.ssh/known_hosts (OpenSSH) только читается и больше не перезаписывается.
+- Тип ключа согласуется с сохранённым (RSA/ECDSA/ED25519), поэтому ложной
+  «смены ключа» из-за другого типа больше нет.
+- DNS-журнал: кнопки «Включить DNS-журнал», «Проверить», «Отключить» на
+  карточке сервера (хранение около 24 часов, потолок 50 МБ). VPN и каскад
+  не перезапускаются.
+
+Учтите: DNS-журнал хранит домены, которые спрашивали устройства ваших
 пользователей. Предупредите их, если нужно.
 
-Антивирусы иногда ложно ругаются на однофайловые сборки PyInstaller.
-Если так — добавьте файл в исключения.
+Файл не подписан. SmartScreen может показать «Windows защитила ваш компьютер» —
+«Подробнее» — «Выполнить в любом случае». Антивирусы иногда ложно ругаются на
+однофайловые сборки PyInstaller — тогда добавьте файл в исключения.
 TXT
-( cd "$STAGE" && sha256sum AmneziaMonitor-win-x64-dns-journal/AmneziaMonitor.exe > AmneziaMonitor-win-x64-dns-journal/SHA256SUMS.txt )
+( cd "$STAGE" && sha256sum $PKG/AmneziaMonitor.exe > $PKG/SHA256SUMS.txt )
 # в архиве не должно быть паролей, ключей, ip-списков
 if find "$STAGE" -iname '*.db' -o -iname '*.yaml' -o -iname 'master.key' -o -iname 'id_rsa' | grep -q .; then
   echo "в каталог сборки попали лишние файлы" >&2
@@ -133,6 +164,6 @@ if find "$STAGE" -iname '*.db' -o -iname '*.yaml' -o -iname 'master.key' -o -ina
 fi
 ZIP_PATH="$OUT_DIR/$ZIP_NAME"
 rm -f "$ZIP_PATH"
-python3 /tmp/am_make_zip.py "$STAGE" "$ZIP_PATH"
+python3 "$ROOT/scripts/make_windows_zip.py" "$STAGE" "$ZIP_PATH"
 sha256sum "$ZIP_PATH" | tee "$ZIP_PATH.sha256"
 echo "готово: $ZIP_PATH"
