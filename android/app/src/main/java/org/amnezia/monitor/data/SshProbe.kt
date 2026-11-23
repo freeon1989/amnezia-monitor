@@ -86,6 +86,35 @@ object SshProbe {
     }
 
     /**
+     * ICMP-пинг системной утилитой ping (есть на Android без root). Как у панели ПК: средний RTT, мс.
+     * null — утилиты нет, ICMP закрыт или адрес странный.
+     */
+    fun icmpPing(host: String, count: Int = 2): Double? {
+        if (!HOST_RE.matches(host)) return null
+        return try {
+            val p = ProcessBuilder("ping", "-c", count.toString(), "-W", "2", host)
+                .redirectErrorStream(true).start()
+            val out = StringBuilder()
+            val reader = Thread { runCatching { out.append(p.inputStream.bufferedReader().readText()) } }
+            reader.start()
+            if (!p.waitFor(8, java.util.concurrent.TimeUnit.SECONDS)) { p.destroyForcibly(); return null }
+            reader.join(1_000)
+            parsePing(out.toString())
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private val HOST_RE = Regex("^[A-Za-z0-9][A-Za-z0-9.:-]{0,252}$")
+
+    /** «rtt min/avg/max/mdev = 30.1/32.4/34.7/2.3 ms» → 32.4; иначе среднее по «time=…». */
+    fun parsePing(out: String): Double? {
+        Regex("= [\\d.]+/([\\d.]+)/").find(out)?.let { return it.groupValues[1].toDoubleOrNull() }
+        val times = Regex("time[=<]([\\d.]+)").findAll(out).mapNotNull { it.groupValues[1].toDoubleOrNull() }.toList()
+        return if (times.isEmpty()) null else times.average()
+    }
+
+    /**
      * Только обмен ключами, без входа: какой ключ хоста сервер показывает сейчас.
      * Нужен для «Доверять новому ключу» — сверить с отпечатком, который видел пользователь.
      */

@@ -123,4 +123,26 @@ class ScreenshotTest {
             }
         }
     }
+
+    /** Прямой сервер (без панели ПК): графики и доступность из LocalHistory после нескольких опросов. */
+    @Test
+    @Config(qualifiers = "w400dp-h1900dp-xhdpi")
+    fun localHistory() {
+        assumeTrue(on())
+        val s = servers[0]
+        val now = 1_800_086_400L
+        val h = org.amnezia.monitor.data.LocalHistory(null)
+        for (i in 0 until 180) {
+            val up = i % 37 != 5
+            h.record("srv", org.amnezia.monitor.data.LocalHistory.Sample(now - (180 - i) * 120L, up, tcpMs = 30.0 + i % 5,
+                cpu = if (up) 12 + 8 * Math.sin(i / 9.0) else null, mem = if (up) 38.0 else null, online = if (up) 1 + i / 60 else null,
+                downBytes = 3e7 + 2e7 * Math.sin(i / 11.0), upBytes = 5e6))
+        }
+        val base = ApiJson.parseDetail(detailJson(s.name, s.host!!))
+        val (avail, lat) = h.stats("srv", 24, now)
+        val d = base.copy(series = h.series("srv", 24, now), current = base.current.copy(availability = avail, latencyAvg = lat, pingMs = 28.0))
+        shoot("android_detail_local_history", false, s.theme!!) {
+            DetailScreen(s.name, DetailUi(detail = d), {}, {}, {}, theme = s.theme!!, servers = servers, isCurrent = { it.name == s.name })
+        }
+    }
 }

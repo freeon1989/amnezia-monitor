@@ -31,6 +31,8 @@ import org.amnezia.monitor.data.ServerDetail
 import org.amnezia.monitor.data.ServerSummary
 import org.amnezia.monitor.data.SettingsStore
 import org.amnezia.monitor.data.SshProbe
+import org.amnezia.monitor.data.LocalHistory
+import java.io.File
 import org.amnezia.monitor.data.friendlyError
 import java.io.ByteArrayOutputStream
 import java.util.UUID
@@ -82,6 +84,8 @@ class MonitorViewModel(
     private val localSnaps = mutableMapOf<String, ServerDetail>()
     private val probePrev = mutableMapOf<String, ProbePrev>()
     private val geo = GeoIp(app)
+    /** История прямых (импортированных) серверов — для графиков и доступности, как у панели ПК. */
+    private val history = LocalHistory(File(app.filesDir, "local_history.v1"))
     private val geoPending = mutableSetOf<String>()
 
     init {
@@ -110,7 +114,21 @@ class MonitorViewModel(
 
     fun setForeground(on: Boolean) {
         foreground = on
-        if (on) restartLoop() else loop?.cancel()
+        if (on) restartLoop() else {
+            loop?.cancel()
+            viewModelScope.launch(Dispatchers.IO) { history.save(force = true) }
+        }
+    }
+
+    /** Снимок прямого сервера с графиками и доступностью за выбранный период. */
+    private fun localDetail(id: String): ServerDetail? {
+        val snap = localSnaps[id] ?: return null
+        val now = System.currentTimeMillis() / 1000
+        val (avail, lat) = history.stats(id, hours, now)
+        return snap.copy(
+            series = history.series(id, hours, now),
+            current = snap.current.copy(availability = avail, latencyAvg = lat),
+        )
     }
 
     fun watchDetail(name: String?) {
@@ -125,7 +143,7 @@ class MonitorViewModel(
         openServer = null
         openLocal = id
         if (id == null) return
-        val snap = localSnaps[id]
+        val snap = localDetail(id)
         if (snap != null) detail = DetailUi(detail = snap, hours = hours)
         viewModelScope.launch { refresh(manual = snap == null) }
     }
@@ -141,7 +159,10 @@ class MonitorViewModel(
         if (h == hours) return
         hours = h
         detail = detail.copy(hours = h)
-        if (openLocal != null) return
+        openLocal?.let { id ->
+            localDetail(id)?.let { detail = detail.copy(detail = it) }
+            return
+        }
         viewModelScope.launch { refreshDetail(manual = true) }
     }
 
@@ -169,6 +190,7 @@ class MonitorViewModel(
     fun deleteImported(id: String) {
         localSnaps.remove(id)
         probePrev.remove(id)
+        history.forget(id)
         store.update { cur -> cur.copy(imported = cur.imported.filterNot { it.id == id }) }
         if (openLocal == id) openLocal = null
     }
@@ -379,17 +401,21 @@ class MonitorViewModel(
                 var keysChanged = false
                 for (srv in imported) {
                     if (srv.host.lowercase() in covered) continue
+                    val prevTs = probePrev[srv.id]?.tsMs
                     val polled = withContext(Dispatchers.IO) {
                         val before = keys.toMap()
                         val result = SshProbe.poll(srv, probePrev[srv.id], keys)
                         if (keys != before) keysChanged = true
-                        result
+                        val ping = SshProbe.icmpPing(srv.host)
+                        result.copy(detail = result.detail.copy(current = result.detail.current.copy(pingMs = ping)))
                     }
                     probePrev[srv.id] = polled.prev
                     localSnaps[srv.id] = polled.detail
+                    history.record(srv.id, historySample(polled, prevTs))
                     localRows.add(polled.summary)
                 }
                 if (keysChanged) store.writeHostKeys(keys)
+                withContext(Dispatchers.IO) { history.save() }
             }
             home = home.copy(
                 servers = withThemes(dash + localRows, cur),
@@ -401,7 +427,7 @@ class MonitorViewModel(
             )
             val localId = openLocal
             if (localId != null) {
-                val snap = localSnaps[localId]
+                val snap = localDetail(localId)
                 if (snap != null) detail = DetailUi(detail = snap, hours = hours)
             } else if (name != null && ep != null && dashError == null) {
                 loadDetailLocked(ep, name, manual)
@@ -409,6 +435,25 @@ class MonitorViewModel(
                 detail = detail.copy(error = dashError, loading = false, refreshing = false, hours = hours)
             }
         }
+    }
+
+    private fun historySample(p: org.amnezia.monitor.data.LocalPoll, prevTs: Long?): LocalHistory.Sample {
+        val c = p.detail.current
+        // при ошибке опроса prev не меняется — время берём текущее
+        val nowMs = if (p.summary.status == "up") p.prev.tsMs else System.currentTimeMillis()
+        // трафик между опросами: скорость × время (длинные паузы — приложение было закрыто — не считаем)
+        val dt = if (prevTs == null) null else ((nowMs - prevTs) / 1000.0).takeIf { it > 0 && it <= 900 }
+        return LocalHistory.Sample(
+            ts = nowMs / 1000,
+            up = p.summary.status == "up",
+            tcpMs = c.tcpMs,
+            pingMs = c.pingMs,
+            cpu = c.cpu,
+            mem = c.mem,
+            online = p.summary.peersOnline,
+            downBytes = if (dt == null) null else c.txBps?.times(dt),
+            upBytes = if (dt == null) null else c.rxBps?.times(dt),
+        )
     }
 
     private suspend fun refreshDetail(manual: Boolean) {
