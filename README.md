@@ -12,8 +12,8 @@ Amnezia Monitor показывает состояние ваших сервер�
 
 ## Скачать
 
-[![Скачать для Windows](https://img.shields.io/badge/%D0%A1%D0%BA%D0%B0%D1%87%D0%B0%D1%82%D1%8C%20%D0%B4%D0%BB%D1%8F%20Windows-zip-2ea44f?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/freeon1989/amnezia-monitor/releases/download/v1.2.0/AmneziaMonitor-win-x64-v1.2.0.zip)
-[![Скачать для Android](https://img.shields.io/badge/%D0%A1%D0%BA%D0%B0%D1%87%D0%B0%D1%82%D1%8C%20%D0%B4%D0%BB%D1%8F%20Android-apk-3DDC84?style=for-the-badge&logo=android&logoColor=white)](https://github.com/freeon1989/amnezia-monitor/releases/download/v1.2.0/AmneziaMonitor-android-v1.2.0.apk)
+[![Скачать для Windows](https://img.shields.io/badge/%D0%A1%D0%BA%D0%B0%D1%87%D0%B0%D1%82%D1%8C%20%D0%B4%D0%BB%D1%8F%20Windows-zip-2ea44f?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/freeon1989/amnezia-monitor/releases/download/v1.4.0/AmneziaMonitor-win-x64-v1.4.0.zip)
+[![Скачать для Android](https://img.shields.io/badge/%D0%A1%D0%BA%D0%B0%D1%87%D0%B0%D1%82%D1%8C%20%D0%B4%D0%BB%D1%8F%20Android-apk-3DDC84?style=for-the-badge&logo=android&logoColor=white)](https://github.com/freeon1989/amnezia-monitor/releases/download/v1.4.0/AmneziaMonitor-android-v1.4.0.apk)
 [![Скачать для macOS](https://img.shields.io/badge/%D0%A1%D0%BA%D0%B0%D1%87%D0%B0%D1%82%D1%8C%20%D0%B4%D0%BB%D1%8F%20macOS-dmg-111111?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/freeon1989/amnezia-monitor/releases/download/v1.2.0/AmneziaMonitor-macos-v1.2.0.dmg)
 [![версия](https://img.shields.io/github/v/release/freeon1989/amnezia-monitor?style=for-the-badge&label=%D0%B2%D0%B5%D1%80%D1%81%D0%B8%D1%8F&color=1f6feb)](https://github.com/freeon1989/amnezia-monitor/releases/latest)
 
@@ -21,7 +21,7 @@ Amnezia Monitor показывает состояние ваших сервер�
 
 Готовая программа для 64-битной Windows. Python ставить не нужно.
 
-Прямая ссылка на текущий архив (v1.2.0): [AmneziaMonitor-win-x64-v1.2.0.zip](https://github.com/freeon1989/amnezia-monitor/releases/download/v1.2.0/AmneziaMonitor-win-x64-v1.2.0.zip). Рядом лежит [файл контрольной суммы .sha256](https://github.com/freeon1989/amnezia-monitor/releases/download/v1.2.0/AmneziaMonitor-win-x64-v1.2.0.zip.sha256).
+Прямая ссылка на текущий архив (v1.4.0): [AmneziaMonitor-win-x64-v1.4.0.zip](https://github.com/freeon1989/amnezia-monitor/releases/download/v1.4.0/AmneziaMonitor-win-x64-v1.4.0.zip). Рядом лежит [файл контрольной суммы .sha256](https://github.com/freeon1989/amnezia-monitor/releases/download/v1.4.0/AmneziaMonitor-win-x64-v1.4.0.zip.sha256).
 
 1. Скачайте zip.
 2. Распакуйте архив в любую папку.
@@ -35,7 +35,7 @@ Amnezia Monitor показывает состояние ваших сервер�
 
 ### Android
 
-Файл [AmneziaMonitor-android-v1.2.0.apk](https://github.com/freeon1989/amnezia-monitor/releases/download/v1.2.0/AmneziaMonitor-android-v1.2.0.apk) ([.sha256](https://github.com/freeon1989/amnezia-monitor/releases/download/v1.2.0/AmneziaMonitor-android-v1.2.0.apk.sha256)). В v1.2.0: смена ключа SSH сервера показывается со старым и новым отпечатками и кнопкой «Доверять новому ключу», «Сайты» читают журнал Amnezia Unbound. Если Android не ставит APK поверх старой версии (другая подпись отладочной сборки), удалите старую версию и установите заново. Приложение-спутник: показывает данные панели Windows по локальной сети. На компьютере включите доступ из локальной сети и скопируйте токен в настройках. Это отладочная сборка: разрешите установку из неизвестных источников.
+Файл [AmneziaMonitor-android-v1.4.0.apk](https://github.com/freeon1989/amnezia-monitor/releases/download/v1.4.0/AmneziaMonitor-android-v1.4.0.apk) ([.sha256](https://github.com/freeon1989/amnezia-monitor/releases/download/v1.4.0/AmneziaMonitor-android-v1.4.0.apk.sha256)). В v1.4.0: оформление «Neon Latex» — фон-город страны сервера, флаги на карточках, героиня и цвета страны на экране сервера, переключение серверов флажками, переключатель «Анимации» (подробнее — [android/README.md](android/README.md)). С v1.2.0: смена ключа SSH сервера показывается со старым и новым отпечатками и кнопкой «Доверять новому ключу», «Сайты» читают журнал Amnezia Unbound. Подпись та же, что у v1.2.0 и v1.3.0, — обновление ставится поверх. Если Android не ставит APK поверх старой версии (другая подпись отладочной сборки), удалите старую версию и установите заново. Приложение-спутник: показывает данные панели Windows по локальной сети. На компьютере включите доступ из локальной сети и скопируйте токен в настройках. Это отладочная сборка: разрешите установку из неизвестных источников.
 
 ### macOS
 
@@ -43,27 +43,33 @@ Amnezia Monitor показывает состояние ваших сервер�
 
 ## Скриншоты
 
-Снимки панели из встроенного демо-режима (`python amnezia_monitor.py --demo dashboard`). Страница настроек снята в том же демо (`python amnezia_monitor.py --demo app`): серверы test1, test2, test3 и test4, адреса из диапазона документации, пароли на экран не выводятся. Настоящих IP, имён клиентов и ключей нет.
+Снимки v1.4.0 из встроенного демо-режима (`python app_main.py --demo`) и демо-данных Android: серверы test1–test4, адреса из диапазона документации (203.0.113.x, 198.51.100.x), пароли на экран не выводятся. Настоящих IP, имён клиентов и ключей нет.
 
 ### Обзор
 
-![Обзор панели: статус серверов, нагрузка и трафик](docs/screenshots/dashboard-overview.png)
+Вкладка сервера: флаг, героиня и фон-город страны, проверка блокировок.
 
-### Пользователи
+![Обзор панели: вкладки серверов с флагами, статус, проверка блокировок, героиня Швеции](docs/screenshots/dashboard-overview.png)
 
-![Список пользователей: кто онлайн и сколько трафика](docs/screenshots/dashboard-users.png)
+### Вся страница сервера
 
-### Сайты и события
-
-![Сайты по DNS-запросам и лента событий](docs/screenshots/dashboard-sites.png)
+![Вся страница: блокировки, ресурсы, трафик, пользователи, сайты и события](docs/screenshots/dashboard-full.png)
 
 ### Сервер недоступен
 
-![Вкладка недоступного сервера: последние известные значения](docs/screenshots/dashboard-offline.png)
+![Вкладка недоступного сервера: последние известные значения и вердикт проверки](docs/screenshots/dashboard-offline.png)
 
 ### Настройки
 
-![Страница настроек: демо-серверы, интервал опроса и уведомления](docs/screenshots/dashboard-settings.png)
+![Страница настроек: демо-серверы, поле «Страна», оформление и анимации](docs/screenshots/dashboard-settings.png)
+
+### Android
+
+<p>
+<img src="docs/screenshots/android-home.png" width="270" alt="Android: список серверов с флагами">
+<img src="docs/screenshots/android-detail-se.png" width="270" alt="Android: экран сервера, Швеция">
+<img src="docs/screenshots/android-detail-kz.png" width="270" alt="Android: экран сервера, Казахстан">
+</p>
 
 ## Возможности
 
