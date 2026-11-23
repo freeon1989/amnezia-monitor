@@ -346,10 +346,14 @@ class StorageAndRunner(unittest.TestCase):
 
     def test_due_servers(self):
         chk = bc.BlockChecker(self.store, lambda: self.cfg, checkhost_factory=demo_data.DemoCheckHost,
-                              local=demo_data.demo_local_probe, clock=lambda: self.clock[0])
+                              local=demo_data.demo_local_probe, clock=lambda: self.clock[0],
+                              timer=lambda d, f: None)
         self.assertEqual([x.name for x in chk.due_servers(NOW)], ["test1", "test2"])
         chk.start("test1", wait=True)
         self.assertEqual([x.name for x in chk.due_servers(NOW + 3600)], ["test2"])
+        self.assertEqual(chk.due_rechecks(NOW + 60), [])
+        self.assertEqual(chk.due_rechecks(NOW + bc.RECHECK_DELAY_SEC), ["test1"])   # таймер потерян — подхватит цикл
+        chk.run_recheck("test1")
         self.assertEqual(len(chk.due_servers(NOW + 6 * 3600 + 1)), 2)
         self.cfg.block_check_enabled = False
         self.assertEqual(chk.due_servers(NOW + 99999), [])
@@ -503,6 +507,238 @@ class SettingsAndApi(unittest.TestCase):
         self.assertFalse(j["started"])
         code, servers = req("GET", "/api/servers")
         self.assertEqual(servers[0]["block"]["verdict"], "ok")
+        # ручная проверка с этого ПК: сразу, несмотря на 30-минутный кулдаун полной проверки
+        self.assertEqual(req("POST", "/api/blocks/local", {"name": "test2"}, token=None)[0], 403)
+        self.assertEqual(req("POST", "/api/blocks/local", {"name": "test2", "port": "x"})[0], 400)
+        self.assertEqual(req("POST", "/api/blocks/local", {"name": "test2", "port": 22, "proto": "sctp"})[0], 400)
+        code, j = req("POST", "/api/blocks/local", {"name": "test2", "port": 22, "proto": "tcp"})
+        self.assertEqual(code, 200)
+        self.assertTrue(j["started"])
+        self.assertEqual(j["results"][0]["state"], "ok")
+        code, j = req("POST", "/api/blocks/local", {"name": "test2", "port": 22, "proto": "tcp"})
+        self.assertFalse(j["started"])                                 # антидребезг 10 с
+        self.assertIn("через", j["message"])
+        code, j = req("GET", "/api/blocks?name=test2")
+        self.assertEqual(j["local"]["source"], "ручная проверка · с этого ПК")
+        self.assertIsNone(j["rechecking"])
+
+
+class Recheck(unittest.TestCase):
+    """Повторная проверка: статус, событие и 🚫 меняются только после подтверждения."""
+
+    def setUp(self):
+        self.dir = Path(tempfile.mkdtemp())
+        self.db = str(self.dir / "m.db")
+        am.Store(self.db).db.close()
+        self.cfg = am.Config(servers=list(demo_data.DEMO_SERVERS[:2]))
+        self.clock = [NOW]
+        self.timers = []
+        self.local_plan = {22: "reset_after_banner"}
+        self.ch_calls = []
+
+    def store(self):
+        return am.Store(self.db)
+
+    def local(self, t, host, sni=None):
+        if t.get("probe") is None:
+            return {"status": "skipped", "ms": None}
+        st = self.local_plan.get(t["port"], "ok")
+        return {"status": st, "ms": 40.0}
+
+    def checkhost(self):
+        self.ch_calls.append(self.clock[0])
+        return demo_data.DemoCheckHost({"test1": {22: ("ok", 3, 8), 443: ("ok", 3, 8)}})
+
+    def checker(self):
+        return bc.BlockChecker(self.store, lambda: self.cfg, checkhost_factory=self.checkhost, local=self.local,
+                               clock=lambda: self.clock[0], timer=lambda d, f: self.timers.append((d, f)))
+
+    def events(self):
+        return [r["message"] for r in self.store().db.execute("SELECT message FROM events WHERE kind='block_change'")]
+
+    def test_bad_result_is_pending_not_saved(self):
+        chk = self.checker()
+        chk.start("test1", wait=True)
+        s = self.store()
+        self.assertIsNone(bc.latest(s, "test1"))                      # статус не меняется
+        self.assertEqual(self.events(), [])                           # и события нет
+        self.assertEqual(s.db.execute("SELECT COUNT(*) FROM block_checks").fetchone()[0], 0)   # нет 🚫 в списке
+        st = bc.status_for(s, "test1", NOW + 10)
+        self.assertEqual(st["rechecking"]["verdict"], "blocked_ru")
+        self.assertEqual(st["rechecking"]["ports"], ["22/tcp"])
+        self.assertEqual(st["rechecking"]["in_sec"], bc.RECHECK_DELAY_SEC - 10)
+        self.assertEqual(len(self.timers), 1)
+        self.assertEqual(self.timers[0][0], bc.RECHECK_DELAY_SEC)
+        self.assertTrue(120 <= bc.RECHECK_DELAY_SEC <= 180)
+        # пока идёт перепроверка, полная проверка не запускается повторно
+        self.assertTrue(chk.start("test1")["rechecking"])
+
+    def test_confirmed_by_recheck(self):
+        chk = self.checker()
+        chk.start("test1", wait=True)
+        self.clock[0] = NOW + bc.RECHECK_DELAY_SEC
+        self.timers[0][1]()                                            # срабатывает таймер
+        s = self.store()
+        res = bc.latest(s, "test1")
+        self.assertEqual(res["verdict"], "blocked_ru")
+        self.assertEqual(res["ts"], NOW)                               # время полной проверки — для кулдауна
+        self.assertEqual(res["recheck"]["confirmed"], ["22/tcp"])
+        self.assertEqual(res["recheck"]["transient"], [])
+        self.assertTrue(res["ports"][0]["confirmed"])
+        ev = self.events()
+        self.assertEqual(len(ev), 1)
+        self.assertIn("🚫", ev[0])
+        self.assertIn("подтверждено повторной проверкой", ev[0])
+        st = bc.status_for(s, "test1", NOW + bc.RECHECK_DELAY_SEC + 1)
+        self.assertIsNone(st["rechecking"])
+        # повторная проверка не сдвигает 30-минутный кулдаун
+        self.assertEqual(st["retry_after"], bc.COOLDOWN_SEC - bc.RECHECK_DELAY_SEC - 1)
+
+    def test_transient_failure_not_reported(self):
+        chk = self.checker()
+        chk.start("test1", wait=True)
+        self.local_plan = {}                                           # через 2,5 минуты всё в порядке
+        self.clock[0] = NOW + bc.RECHECK_DELAY_SEC
+        chk.run_recheck("test1")
+        res = bc.latest(self.store(), "test1")
+        self.assertEqual(res["verdict"], "ok")
+        self.assertEqual(res["recheck"]["transient"], ["22/tcp"])
+        self.assertEqual(res["recheck"]["first_verdict"], "blocked_ru")
+        self.assertEqual(res["ports"][0]["transient"]["verdict"], "blocked_ru")
+        self.assertEqual(self.events(), [])                            # ни 🚫, ни «Статус изменился»
+
+    def test_recheck_from_ok_back_to_ok_after_previous_block(self):
+        s = self.store()
+        bc.save_result(s, {"server": "test1", "host": "h", "ports": [], "ts": NOW - 7200, "verdict": "ok",
+                           "title": "Доступен везде"})
+        chk = self.checker()
+        chk.start("test1", wait=True)
+        self.local_plan = {}
+        self.clock[0] = NOW + bc.RECHECK_DELAY_SEC
+        chk.run_recheck("test1")
+        self.assertEqual(self.events(), [])
+        self.assertEqual([h["verdict"] for h in bc.history(self.store(), "test1")], ["ok", "ok"])
+
+    def test_recheck_skips_checkhost_in_backoff_and_reuses_world_data(self):
+        chk = self.checker()
+        chk.start("test1", wait=True)
+        s = self.store()
+        s.set_state("checkhost_backoff_until", NOW + 3600)
+        s.commit()
+        self.clock[0] = NOW + bc.RECHECK_DELAY_SEC
+        chk.run_recheck("test1")
+        self.assertEqual(self.ch_calls, [NOW])                         # второй раз check-host не трогали
+        res = bc.latest(self.store(), "test1")
+        self.assertEqual(res["verdict"], "blocked_ru")                 # сравнение с прошлыми данными из-за рубежа
+        self.assertTrue(res["ports"][0]["nodes_from_prior"])
+        self.assertFalse(res["recheck"]["checkhost"])
+
+    def test_recheck_uses_checkhost_when_allowed_and_only_bad_ports(self):
+        chk = self.checker()
+        chk.start("test1", wait=True)
+        self.clock[0] = NOW + bc.RECHECK_DELAY_SEC
+        seen = []
+        orig = self.local
+        self.local = lambda t, h, sni=None: (seen.append(t["port"]), orig(t, h, sni))[1]
+        chk.local = self.local
+        chk.run_recheck("test1")
+        self.assertEqual(self.ch_calls, [NOW, NOW + bc.RECHECK_DELAY_SEC])
+        self.assertEqual(seen, [22])                                   # перепроверяется только плохой порт
+        self.assertTrue(bc.latest(self.store(), "test1")["recheck"]["checkhost"])
+
+    def test_ok_result_saved_immediately(self):
+        self.local_plan = {}
+        chk = self.checker()
+        chk.start("test1", wait=True)
+        self.assertEqual(bc.latest(self.store(), "test1")["verdict"], "ok")
+        self.assertEqual(self.timers, [])
+
+    def test_recheck_without_pending_is_noop(self):
+        self.assertIsNone(self.checker().run_recheck("test1"))
+
+    def test_merge_partial_confirmation(self):
+        first = {"server": "s", "host": "h", "ts": NOW, "verdict": "blocked_ru", "title": "x", "ports": [
+            {"port": 22, "proto": "tcp", "label": "SSH", "verdict": "blocked_ru", "title": "a"},
+            {"port": 443, "proto": "tls", "label": "Xray/Reality", "verdict": "down", "title": "b"},
+            {"port": 8443, "proto": "tcp", "label": "TCP", "verdict": "ok", "title": "c"}]}
+        second = {"ports": [
+            {"port": 22, "proto": "tcp", "label": "SSH", "verdict": "ok", "title": "ok"},
+            {"port": 443, "proto": "tls", "label": "Xray/Reality", "verdict": "down", "title": "b2"}],
+            "checkhost": {"ok": False}}
+        m = bc.merge_recheck(first, second, NOW + 150)
+        self.assertEqual(m["verdict"], "partial")
+        self.assertEqual(m["recheck"]["confirmed"], ["443/tcp"])
+        self.assertEqual(m["recheck"]["transient"], ["22/tcp"])
+        self.assertEqual(bc.needs_recheck(first), ["22/tcp", "443/tcp"])
+
+
+class ManualLocalCheck(unittest.TestCase):
+    def setUp(self):
+        self.dir = Path(tempfile.mkdtemp())
+        self.db = str(self.dir / "m.db")
+        am.Store(self.db).db.close()
+        self.cfg = am.Config(servers=list(demo_data.DEMO_SERVERS[:2]))
+        self.clock = [NOW]
+        self.ch = []
+        s = am.Store(self.db)
+        s.set_state("srv:test1", {"ports": [{"port": 443, "proto": "tcp", "type": "xray", "container": "amnezia-xray"}]})
+        s.commit()
+        s.db.close()
+        self.chk = bc.BlockChecker(lambda: am.Store(self.db), lambda: self.cfg,
+                                   checkhost_factory=lambda: self.ch.append(1), local=demo_data.demo_local_probe,
+                                   clock=lambda: self.clock[0], timer=lambda d, f: None)
+
+    def test_server_check_ignores_cooldown_and_checkhost(self):
+        s = am.Store(self.db)
+        bc.save_result(s, {"server": "test1", "host": "h", "ports": [], "ts": NOW - 10, "verdict": "ok",
+                           "title": "Доступен везде"})
+        self.assertGreater(bc.status_for(s, "test1", NOW)["retry_after"], 0)     # полная — на кулдауне
+        r = self.chk.local_check("test1")
+        self.assertTrue(r["started"])
+        self.assertEqual(self.ch, [])                                   # check-host не вызывался
+        by = {x["port"]: x for x in r["results"]}
+        self.assertEqual(by[22]["state"], "dpi")
+        self.assertEqual(by[443]["state"], "ok")
+        st = bc.status_for(am.Store(self.db), "test1", NOW + 1)
+        self.assertEqual(st["local"]["source"], "ручная проверка · с этого ПК")
+        self.assertEqual(st["local"]["ports"]["22/tcp"]["state"], "dpi")
+        self.assertEqual(st["result"]["verdict"], "ok")                 # статус блокировок не меняется
+        self.assertEqual(am.Store(self.db).db.execute("SELECT COUNT(*) FROM events").fetchone()[0], 0)
+
+    def test_debounce_10s(self):
+        self.assertTrue(self.chk.local_check("test1")["started"])
+        self.clock[0] = NOW + 4
+        r = self.chk.local_check("test1")
+        self.assertFalse(r["started"])
+        self.assertEqual(r["retry_after"], 7)
+        r = self.chk.local_check("test1", 443, "tls")                  # и по одному порту сразу после всего сервера
+        self.assertFalse(r["started"])
+        self.clock[0] = NOW + bc.LOCAL_DEBOUNCE_SEC
+        self.assertTrue(self.chk.local_check("test1")["started"])
+        self.assertTrue(self.chk.local_check("test2")["started"])      # другой сервер — сразу
+
+    def test_single_port(self):
+        r = self.chk.local_check("test1", 443, "tls")
+        self.assertEqual([x["port"] for x in r["results"]], [443])
+        self.clock[0] = NOW + 1
+        self.assertTrue(self.chk.local_check("test1", 22, "tcp")["started"])   # другой порт — без ожидания
+        ports = bc.status_for(am.Store(self.db), "test1", NOW + 2)["local"]["ports"]
+        self.assertEqual(sorted(ports), ["22/tcp", "443/tcp"])               # результаты портов сливаются
+        with self.assertRaises(ValueError):
+            self.chk.local_check("test1", 9999, "tcp")
+        with self.assertRaises(ValueError):
+            self.chk.local_check("nope")
+
+    def test_full_check_button_says_when_available(self):
+        s = am.Store(self.db)
+        bc.save_result(s, {"server": "test2", "host": "h", "ports": [], "ts": NOW - 60, "verdict": "ok",
+                           "title": "Доступен везде"})
+        r = self.chk.start("test2")
+        self.assertFalse(r["started"])
+        self.assertIn("будет доступна в", r["message"])
+        self.assertIn("через 29 мин", r["message"])
+        self.assertIn("с этого ПК доступна сейчас", r["message"])
+        self.assertEqual(r["available_at"], NOW - 60 + bc.COOLDOWN_SEC)
 
 
 if __name__ == "__main__":

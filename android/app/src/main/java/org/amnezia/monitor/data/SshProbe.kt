@@ -153,10 +153,11 @@ object SshProbe {
         val load = ProcParse.load1(exec("cat /proc/loadavg"))
         val nproc = ProcParse.nproc(exec("nproc"))
         val mem = ProcParse.mem(exec("cat /proc/meminfo"))
-        val cpu = ProcParse.cpuJiffies(exec("head -1 /proc/stat"))
+        val statText = exec(ProcParse.STAT_CMD)
+        val cpu = ProcParse.cpuJiffies(statText)
         val net = ProcParse.netDev(exec("cat /proc/net/dev"))
         val dt = if (prev == null) 0.0 else (nowMs - prev.tsMs) / 1000.0
-        val cpuPct = ProcParse.cpuPercent(prev?.cpu, cpu)
+        val cpuPct = ProcParse.cpuFromSamples(statText) ?: ProcParse.cpuPercent(prev?.cpu, cpu)
         val rates = ProcParse.netRates(prev?.net, net, dt)
         var docker = "docker"
         var psResult = execCode(session, dockerPs(docker))

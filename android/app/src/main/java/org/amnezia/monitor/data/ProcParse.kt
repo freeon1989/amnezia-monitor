@@ -4,7 +4,7 @@ package org.amnezia.monitor.data
 object ProcParse {
     private val NAME = Regex("^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
     private val ALLOWED = Regex(
-        "^(cat /proc/|head -1 /proc/stat$|nproc$|(sudo -n )?docker (ps|exec \\S+ sh -c '(awg|wg|cat|tail) )" +
+        "^(cat /proc/|head -1 /proc/stat(; sleep 1; head -1 /proc/stat)?$|nproc$|(sudo -n )?docker (ps|exec \\S+ sh -c '(awg|wg|cat|tail) )" +
             "|(sudo -n )?docker logs --tail \\d+ [\\w.-]+$)",
     )
     private val UNBOUND = Regex("""(?:^\[(\d+)\].*?)?info: ([0-9a-fA-F.:]+) (\S+?)\.? (\w+) IN\b""")
@@ -35,13 +35,29 @@ object ProcParse {
         return Triple(pct, used.toDouble(), total.toDouble())
     }
 
-    fun cpuJiffies(text: String): Pair<Long, Long>? {
-        val line = text.lineSequence().firstOrNull { it.startsWith("cpu ") } ?: return null
-        val nums = line.split(Regex("\\s+")).drop(1).mapNotNull { it.toLongOrNull() }
+    /** Команда чтения CPU: два снимка /proc/stat с паузой 1 с — процент виден уже с первого опроса. */
+    const val STAT_CMD = "head -1 /proc/stat; sleep 1; head -1 /proc/stat"
+
+    private fun cpuLine(line: String): Pair<Long, Long>? {
+        val parts = line.trim().split(Regex("\\s+"))
+        if (parts.firstOrNull() != "cpu") return null
+        val nums = parts.drop(1).take(8).map { it.toLongOrNull() ?: return null }
         if (nums.size < 4) return null
         val idle = nums[3] + (nums.getOrNull(4) ?: 0L)
-        val total = nums.take(8).sum()
+        val total = nums.sum()
         return (total - idle) to total
+    }
+
+    /** Все строки «cpu …» по порядку (busy, total). Строки cpu0, cpu1 … и мусор пропускаются. */
+    fun cpuSamples(text: String): List<Pair<Long, Long>> = text.lineSequence().mapNotNull { cpuLine(it) }.toList()
+
+    /** Последний снимок — база для следующего опроса. */
+    fun cpuJiffies(text: String): Pair<Long, Long>? = cpuSamples(text).lastOrNull()
+
+    /** Процент между первым и последним снимком одной команды; null — если снимок один. */
+    fun cpuFromSamples(text: String): Double? {
+        val s = cpuSamples(text)
+        return if (s.size >= 2) cpuPercent(s.first(), s.last()) else null
     }
 
     fun cpuPercent(prev: Pair<Long, Long>?, cur: Pair<Long, Long>?): Double? {

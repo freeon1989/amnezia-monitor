@@ -250,15 +250,46 @@ def parse_meminfo(text: str) -> dict:
     return {"total": total, "used": used, "percent": round(used * 100.0 / total, 1)}
 
 
-def parse_proc_stat(text: str) -> Optional[tuple]:
-    """Возвращает (busy, total) jiffies из строки 'cpu ' в /proc/stat."""
+def _cpu_line(line: str) -> Optional[tuple]:
+    """(busy, total) из одной строки 'cpu  user nice system idle iowait irq softirq steal guest guest_nice'.
+    guest/guest_nice уже входят в user/nice, поэтому берутся первые 8 полей (steal — тоже занято:
+    это время, которое отнял гипервизор). Старые ядра дают только 4 поля — это тоже годится."""
+    parts = line.split()
+    if not parts or parts[0] != "cpu":
+        return None
+    try:
+        nums = [int(x) for x in parts[1:9]]
+    except ValueError:
+        return None
+    if len(nums) < 4:
+        return None
+    idle = nums[3] + (nums[4] if len(nums) > 4 else 0)
+    total = sum(nums)
+    return total - idle, total
+
+
+def parse_proc_stat_samples(text: str) -> list:
+    """Все строки суммарного 'cpu ' из вывода (команда читает /proc/stat дважды с паузой 1 с)."""
+    out = []
     for line in text.splitlines():
-        if line.startswith("cpu "):
-            nums = [int(x) for x in line.split()[1:]]
-            idle = nums[3] + (nums[4] if len(nums) > 4 else 0)
-            total = sum(nums[:8])
-            return total - idle, total
-    return None
+        v = _cpu_line(line.strip())
+        if v is not None:
+            out.append(v)
+    return out
+
+
+def parse_proc_stat(text: str) -> Optional[tuple]:
+    """Возвращает (busy, total) jiffies из последней строки 'cpu ' в /proc/stat."""
+    samples = parse_proc_stat_samples(text)
+    return samples[-1] if samples else None
+
+
+def cpu_from_samples(text: str) -> Optional[float]:
+    """Загрузка CPU за паузу между двумя чтениями /proc/stat внутри одной команды. None — замер не вышел."""
+    samples = parse_proc_stat_samples(text)
+    if len(samples) < 2:
+        return None
+    return cpu_percent(samples[0], samples[-1])
 
 
 def cpu_percent(prev: Optional[tuple], cur: Optional[tuple]) -> Optional[float]:
@@ -587,7 +618,8 @@ READ_ONLY_COMMANDS = {
     "loadavg": "cat /proc/loadavg",
     "nproc": "nproc",
     "meminfo": "cat /proc/meminfo",
-    "stat": "head -1 /proc/stat",
+    # два чтения с паузой 1 с: загрузка известна уже с первого опроса
+    "stat": "head -1 /proc/stat; sleep 1; head -1 /proc/stat",
     "netdev": "cat /proc/net/dev",
     # docker_cmd подставляется из конфига ("docker" или "sudo -n docker")
     "docker_ps": "{docker} ps -a --format '{{{{.Names}}}}|{{{{.Status}}}}|{{{{.Image}}}}|{{{{.Ports}}}}'",
@@ -607,7 +639,7 @@ READ_ONLY_COMMANDS = {
 }
 DNS_TAIL_LINES = 3000
 # Белый список: любая команда, не начинающаяся с этих префиксов, будет отклонена.
-_ALLOWED_RE = re.compile(r"^(cat /proc/|head -1 /proc/stat$|nproc$|(sudo -n )?docker (ps|exec \S+ sh -c '(awg|wg|cat|tail) )"
+_ALLOWED_RE = re.compile(r"^(cat /proc/|head -1 /proc/stat(; sleep 1; head -1 /proc/stat)?$|nproc$|(sudo -n )?docker (ps|exec \S+ sh -c '(awg|wg|cat|tail) )"
                          r"|(sudo -n )?docker logs --tail \d+ [\w.-]+$)")
 
 
@@ -739,6 +771,13 @@ class Store:
                 pass
         self.db.executescript(SCHEMA)
         self._migrate_dns_line_key()
+        self._purge_hash_state_keys()
+
+    def _purge_hash_state_keys(self) -> None:
+        """До 1.3.0 состояние серверов с DNS-журналом по ошибке писалось под ключом-хешем строки
+        журнала (40 hex-символов). Такие записи никому не нужны — удаляем."""
+        self.db.execute("DELETE FROM state WHERE length(key)=40 AND key NOT GLOB '*[^0-9a-f]*'")
+        self.db.commit()
 
     def _migrate_dns_line_key(self) -> None:
         """Старые базы не знают line_key. Индекс нельзя создавать до ALTER: executescript
@@ -779,6 +818,7 @@ class PollResult:
     load: Optional[tuple] = None
     nproc: Optional[int] = None
     cpu_raw: Optional[tuple] = None
+    cpu_now: Optional[float] = None               # % по двум чтениям /proc/stat в одной команде
     mem: dict = field(default_factory=dict)
     net: dict = field(default_factory=dict)
     containers: list = field(default_factory=list)
@@ -826,7 +866,9 @@ def collect(srv: ServerCfg, runner_factory: Callable[[ServerCfg], Runner], now: 
         except ValueError:
             pass
         res.mem = parse_meminfo(out("meminfo"))
-        res.cpu_raw = parse_proc_stat(out("stat"))
+        stat_text = out("stat")
+        res.cpu_raw = parse_proc_stat(stat_text)
+        res.cpu_now = cpu_from_samples(stat_text)
         res.net = parse_net_dev(out("netdev"))
         rc, ps, err = runner.run(READ_ONLY_COMMANDS["docker_ps"].format(docker=srv.docker_cmd))
         if rc != 0:
@@ -886,15 +928,18 @@ def collect(srv: ServerCfg, runner_factory: Callable[[ServerCfg], Runner], now: 
 def process(store: Store, cfg: Config, r: PollResult) -> list:
     """Сохраняет результат, сравнивает с предыдущим состоянием, возвращает список сообщений-событий."""
     events = []
-    key = f"srv:{r.server}"
-    prev = store.get_state(key, {})
+    state_key = f"srv:{r.server}"
+    prev = store.get_state(state_key, {})
     first = not prev
 
     def ev(kind, subject, msg):
         events.append(msg)
         store.add_event(r.ts, r.server, kind, subject, msg)
 
-    cpu = cpu_percent(tuple(prev["cpu_raw"]) if prev.get("cpu_raw") else None, r.cpu_raw)
+    # Основной путь — замер внутри одной команды; запасной — разница с прошлым опросом.
+    cpu = r.cpu_now
+    if cpu is None:
+        cpu = cpu_percent(tuple(prev["cpu_raw"]) if prev.get("cpu_raw") else None, r.cpu_raw)
     dt = r.ts - prev.get("ts", r.ts)
     rx_bps, tx_bps = net_rates(prev.get("net"), r.net, dt) if r.ssh_ok else (None, None)
     online = [p for p in r.peers if p["online"]]
@@ -999,17 +1044,17 @@ def process(store: Store, cfg: Config, r: PollResult) -> list:
             for e in r.dns[start:]:
                 if e["ts"] is not None and e["ts"] < cutoff:
                     continue
-                key = hashlib.sha1(e["line"].encode("utf-8", "replace")).hexdigest()
-                if key in seen:
+                line_key = hashlib.sha1(e["line"].encode("utf-8", "replace")).hexdigest()
+                if line_key in seen:
                     continue
-                seen.add(key)
+                seen.add(line_key)
                 if store.db.execute("SELECT 1 FROM dns WHERE server=? AND line_key=?",
-                                    (r.server, key)).fetchone():
+                                    (r.server, line_key)).fetchone():
                     continue
                 store.db.execute(
                     "INSERT INTO dns(ts, server, client, ip, domain, site, qtype, line_key) VALUES (?,?,?,?,?,?,?,?)",
                     (e["ts"] or r.ts, r.server, e["client"], e["ip"], e["domain"],
-                     root_domain(e["domain"]), e["qtype"], key))
+                     root_domain(e["domain"]), e["qtype"], line_key))
             new["dns_last"] = lines[-1]
         else:
             new["dns_last"] = prev.get("dns_last")
@@ -1022,7 +1067,7 @@ def process(store: Store, cfg: Config, r: PollResult) -> list:
     # --- порты VPN для проверки блокировок (только то, что уже видно в docker ps / wg dump)
     new["ports"] = r.ports if (up_now and r.ports is not None) else prev.get("ports")
 
-    store.set_state(key, new)
+    store.set_state(state_key, new)
     store.commit()
     return events
 

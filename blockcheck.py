@@ -30,6 +30,9 @@ APP_VERSION = "1.3.0"
 COOLDOWN_SEC = 30 * 60              # результат кешируется на 30 минут
 RUN_STALE_SEC = 10 * 60             # «идёт проверка» дольше этого — считаем зависшей
 CHECKHOST_BACKOFF_SEC = 15 * 60     # после limit_exceeded check-host не трогаем 15 минут
+RECHECK_DELAY_SEC = 150             # плохой результат подтверждаем повторной проверкой через 2,5 минуты
+LOCAL_DEBOUNCE_SEC = 10             # ручная проверка с этого ПК — не чаще раза в 10 секунд
+BAD_VERDICTS = {"blocked_ru", "down", "partial"}
 MAX_RU_NODES = 11
 MAX_WORLD_NODES = 11
 # Страны со своей цензурой не годятся как «мир»: их провалы ничего не говорят о РФ.
@@ -452,6 +455,10 @@ def server_verdict(ports: list) -> dict:
 # --------------------------------------------------------------------------- цели проверки
 
 
+def port_key(t: dict) -> str:
+    return f"{int(t['port'])}/{'udp' if t.get('proto') == 'udp' else 'tcp'}"
+
+
 def targets_for(srv, discovered: Optional[list]) -> list:
     """SSH-порт сервера + порты VPN, уже известные из опроса (docker ps / wg dump) + заданные вручную."""
     out = [{"port": int(srv.port), "proto": "tcp", "kind": "ssh", "probe": "ssh", "label": "SSH",
@@ -497,11 +504,18 @@ def _awg_evidence(store, server: str) -> Optional[dict]:
 
 def check_server(srv, discovered: Optional[list], checkhost: Optional[CheckHost] = None,
                  local: Callable = local_probe, now: Optional[float] = None,
-                 checkhost_note: Optional[str] = None, awg: Optional[dict] = None) -> dict:
-    """Полная проверка одного сервера. checkhost=None — только с этого ПК (с пояснением checkhost_note)."""
+                 checkhost_note: Optional[str] = None, awg: Optional[dict] = None,
+                 only: Optional[set] = None, prior: Optional[dict] = None) -> dict:
+    """Полная проверка одного сервера. checkhost=None — только с этого ПК (с пояснением checkhost_note).
+
+    only — множество ключей "порт/proto": проверить только эти порты (повторная проверка);
+    prior — {ключ: {"ru": [...], "world": [...]}} — данные узлов check-host прошлой проверки,
+    берутся, если check-host сейчас не опрашивался (пауза из-за лимита или ошибка)."""
     t0 = time.time()
     now = now or t0
     targets = targets_for(srv, discovered)
+    if only is not None:
+        targets = [t for t in targets if port_key(t) in only]
     with ThreadPoolExecutor(max_workers=max(1, min(6, len(targets)))) as pool:
         locals_ = list(pool.map(lambda t: local(t, srv.host, getattr(srv, "block_sni", None)), targets))
 
@@ -554,6 +568,9 @@ def check_server(srv, discovered: Optional[list], checkhost: Optional[CheckHost]
 
     ports = []
     for t, loc, nr in zip(targets, locals_, node_res):
+        if not ch["ok"] and prior and port_key(t) in prior and t["proto"] != "udp":
+            nr = {"ru": prior[port_key(t)].get("ru") or [], "world": prior[port_key(t)].get("world") or []}
+            t = dict(t, nodes_from_prior=True)
         v = port_verdict(t["proto"], loc if t["probe"] else None, nr["ru"], nr["world"], t["label"])
         if t["proto"] == "udp" and awg and awg.get("peers"):
             if awg["online"]:
@@ -604,7 +621,8 @@ def change_message(server: str, prev: Optional[str], cur: dict) -> Optional[str]
     if prev is None and v == "ok":
         return None
     icon = {"ok": "✅", "blocked_ru": "🚫", "down": "🔴", "partial": "⚠️"}.get(v, "ℹ️")
-    return f"{icon} {server}: блокировки — {cur['title']}"
+    suffix = " (подтверждено повторной проверкой)" if (cur.get("recheck") or {}).get("confirmed") else ""
+    return f"{icon} {server}: блокировки — {cur['title']}{suffix}"
 
 
 def save_result(store, res: dict, keep_days: int = 30) -> Optional[str]:
@@ -620,32 +638,120 @@ def save_result(store, res: dict, keep_days: int = 30) -> Optional[str]:
     store.commit()
     return msg
 
+# --------------------------------------------------------------------------- повторная проверка
+
+
+def needs_recheck(res: dict) -> list:
+    """Ключи портов с плохим вердиктом (blocked/dpi/ip/isp, partial, down) — их надо перепроверить."""
+    return [port_key(p) for p in res.get("ports") or [] if p.get("verdict") in BAD_VERDICTS]
+
+
+def merge_recheck(first: dict, second: dict, now: float) -> dict:
+    """Итог после повторной проверки.
+
+    Порт, который снова плохой, — подтверждён (берутся свежие данные повторной проверки).
+    Порт, который во второй раз в порядке, — кратковременный сбой: его вердикт берётся из повторной
+    проверки, а первый плохой результат сохраняется в поле transient (без события и без 🚫).
+    Время результата остаётся временем первой (полной) проверки — от него считается кулдаун."""
+    again = {port_key(p): p for p in second.get("ports") or []}
+    want = set(needs_recheck(first))
+    ports, confirmed, transient = [], [], []
+    for p in first.get("ports") or []:
+        k = port_key(p)
+        q = again.get(k)
+        if k not in want or q is None:
+            ports.append(p)
+            continue
+        if q["verdict"] in BAD_VERDICTS:
+            ports.append(dict(q, confirmed=True, first_verdict=p["verdict"]))
+            confirmed.append(k)
+        else:
+            ports.append(dict(q, transient={"verdict": p["verdict"], "title": p["title"],
+                                            "detail": p.get("detail"), "local": p.get("local")}))
+            transient.append(k)
+    sv = server_verdict(ports)
+    out = dict(first, ports=ports, verdict=sv["verdict"], title=sv["title"])
+    out["recheck"] = {"ts": now, "delay": round(now - first["ts"]), "confirmed": confirmed,
+                      "transient": transient, "checkhost": bool((second.get("checkhost") or {}).get("ok")),
+                      "first_verdict": first["verdict"], "first_title": first["title"]}
+    if second.get("checkhost", {}).get("ok"):
+        out["checkhost_recheck"] = second["checkhost"]
+    return out
+
+
+def pending_for(store, server: str) -> Optional[dict]:
+    p = store.get_state(f"blockpending:{server}")
+    return p if isinstance(p, dict) and isinstance(p.get("first"), dict) else None
+
+# --------------------------------------------------------------------------- ручная проверка с этого ПК
+
+
+def local_state(status: Optional[str]) -> str:
+    if status in LOCAL_OK:
+        return "ok"
+    if status in LOCAL_DPI:
+        return "dpi"
+    if status in LOCAL_CONN_FAIL:
+        return "fail"
+    return "skipped" if status in (None, "skipped") else "error"
+
+
+LOCAL_STATE_TITLE = {"ok": "доступен с этого ПК", "dpi": "подключается и обрывается (похоже на ТСПУ/DPI)",
+                     "fail": "не подключается с этого ПК", "skipped": "UDP — с ПК не проверить",
+                     "error": "ошибка проверки"}
+
+# --------------------------------------------------------------------------- для панели
+
 
 def status_for(store, server: str, now: Optional[float] = None) -> dict:
-    """Для панели: последний результат, история, кулдаун и признак «идёт проверка»."""
+    """Для панели: последний результат, история, кулдаун, «идёт проверка», перепроверка и ручная проверка."""
     now = now or time.time()
     res = latest(store, server)
     run = store.get_state(f"blockrun:{server}")
     running = bool(run) and now - float(run) < RUN_STALE_SEC
-    retry = max(0, int(res["ts"] + COOLDOWN_SEC - now)) if res else 0
+    pend = pending_for(store, server)
+    last_full = max([x for x in ((res or {}).get("ts"), (pend or {}).get("first", {}).get("ts")) if x] or [0])
+    retry = max(0, int(last_full + COOLDOWN_SEC - now)) if last_full else 0
+    rechecking = None
+    if pend:
+        f = pend["first"]
+        rechecking = {"since": f["ts"], "due": pend.get("due"), "in_sec": max(0, int((pend.get("due") or now) - now)),
+                      "verdict": f["verdict"], "title": f["title"], "ports": pend.get("ports") or needs_recheck(f),
+                      "running": bool(pend.get("running"))}
+    loc = store.get_state(f"blocklocal:{server}")
     return {"server": server, "result": res, "history": history(store, server), "running": running,
-            "retry_after": retry, "cooldown_sec": COOLDOWN_SEC, "now": now}
+            "retry_after": retry, "available_at": (last_full + COOLDOWN_SEC) if retry else now,
+            "cooldown_sec": COOLDOWN_SEC, "now": now, "rechecking": rechecking,
+            "local": loc if isinstance(loc, dict) else None, "local_debounce_sec": LOCAL_DEBOUNCE_SEC,
+            "recheck_delay_sec": RECHECK_DELAY_SEC}
 
 
 class BlockChecker:
-    """Запуск проверок в фоне: кнопка «Проверить сейчас» и периодическая проверка."""
+    """Запуск проверок в фоне: «Проверить сейчас», повторная проверка, ручная проверка с ПК, расписание."""
 
     def __init__(self, store_factory: Callable, get_cfg: Callable, checkhost_factory: Callable = None,
-                 local: Callable = local_probe, clock: Callable = time.time):
+                 local: Callable = local_probe, clock: Callable = time.time,
+                 recheck_delay: float = RECHECK_DELAY_SEC, timer: Callable = None):
         self.store_factory, self.get_cfg = store_factory, get_cfg
         self.checkhost_factory = checkhost_factory or CheckHost
         self.local, self.clock = local, clock
+        self.recheck_delay = recheck_delay
+        self.timer = timer if timer is not None else self._thread_timer   # timer(delay, fn) — для тестов
         self.lock = threading.Lock()
         self.running: set = set()
+        self.local_last: dict = {}
+
+    @staticmethod
+    def _thread_timer(delay: float, fn: Callable):
+        t = threading.Timer(delay, fn)
+        t.daemon = True
+        t.start()
+        return t
 
     def _server(self, name: str):
         return next((s for s in self.get_cfg().servers if s.name == name), None)
 
+    # ----------------------------------------------------------------- полная проверка (с check-host)
     def start(self, name: str, wait: bool = False) -> dict:
         srv = self._server(name)
         if srv is None:
@@ -657,9 +763,14 @@ class BlockChecker:
             store.db.close()
         if st["running"] or name in self.running:
             return {"started": False, "running": True, "message": "проверка уже идёт"}
+        if st["rechecking"]:
+            return {"started": False, "rechecking": True,
+                    "message": "идёт повторная проверка найденных проблем — дождитесь её результата"}
         if st["retry_after"] > 0:
-            return {"started": False, "retry_after": st["retry_after"],
-                    "message": f"результат свежий — повторить можно через {max(1, st['retry_after'] // 60)} мин"}
+            at = time.strftime("%H:%M", time.localtime(st["available_at"]))
+            return {"started": False, "retry_after": st["retry_after"], "available_at": st["available_at"],
+                    "message": f"полная проверка будет доступна в {at} (через {max(1, -(-st['retry_after'] // 60))}"
+                               " мин); проверка с этого ПК доступна сейчас"}
         with self.lock:
             if name in self.running:
                 return {"started": False, "running": True, "message": "проверка уже идёт"}
@@ -670,26 +781,37 @@ class BlockChecker:
             th.join()
         return {"started": True, "message": "проверка запущена"}
 
+    def _checkhost_or_note(self, store, now):
+        backoff = store.get_state("checkhost_backoff_until") or 0
+        if backoff > now:
+            return None, (f"check-host.net ограничил частоту запросов, пауза ещё {int((backoff - now) // 60) + 1}"
+                          " мин — проверены только порты с этого ПК")
+        return self.checkhost_factory(), None
+
     def _run_one(self, srv) -> Optional[dict]:
         store = self.store_factory()
         try:
             now = self.clock()
             store.set_state(f"blockrun:{srv.name}", now)
             store.commit()
-            backoff = store.get_state("checkhost_backoff_until") or 0
-            checkhost, note = None, None
-            if backoff > now:
-                note = (f"check-host.net ограничил частоту запросов, пауза ещё {int((backoff - now) // 60) + 1} мин"
-                        " — проверены только порты с этого ПК")
-            else:
-                checkhost = self.checkhost_factory()
+            checkhost, note = self._checkhost_or_note(store, now)
             discovered = (store.get_state(f"srv:{srv.name}", {}) or {}).get("ports")
             res = check_server(srv, discovered, checkhost, self.local, now=now, checkhost_note=note,
                                awg=_awg_evidence(store, srv.name))
             if res["checkhost"].get("limited"):
                 store.set_state("checkhost_backoff_until", now + CHECKHOST_BACKOFF_SEC)
-            save_result(store, res)
-            log.info("Проверка блокировок %s: %s", srv.name, res["verdict"])
+            bad = needs_recheck(res)
+            if bad:
+                # Не сохраняем сразу: статус, событие и 🚫 — только если повторная проверка подтвердит.
+                store.set_state(f"blockpending:{srv.name}", {"first": res, "ports": bad,
+                                                              "due": now + self.recheck_delay})
+                store.commit()
+                log.info("Проверка блокировок %s: %s — перепроверка через %d с", srv.name, res["verdict"],
+                         self.recheck_delay)
+                self.timer(self.recheck_delay, lambda: self.run_recheck(srv.name))
+            else:
+                save_result(store, res)
+                log.info("Проверка блокировок %s: %s", srv.name, res["verdict"])
             return res
         except Exception:
             log.exception("Проверка блокировок %s не удалась", srv.name)
@@ -704,6 +826,116 @@ class BlockChecker:
             with self.lock:
                 self.running.discard(srv.name)
 
+    # ----------------------------------------------------------------- повторная проверка
+    def run_recheck(self, name: str) -> Optional[dict]:
+        """Повторная проверка плохих портов. С этого ПК — всегда; check-host — только если он не на паузе.
+        Не считается в 30-минутный кулдаун ручного запуска."""
+        with self.lock:
+            if name in self.running:
+                return None
+            self.running.add(name)
+        store = self.store_factory()
+        try:
+            pend = pending_for(store, name)
+            if not pend:
+                return None
+            first = pend["first"]
+            srv = self._server(name)
+            if srv is None:                      # сервер удалили из настроек
+                store.set_state(f"blockpending:{name}", None)
+                store.commit()
+                return None
+            now = self.clock()
+            store.set_state(f"blockpending:{name}", dict(pend, running=True))
+            store.commit()
+            want = set(pend.get("ports") or needs_recheck(first))
+            prior = {port_key(p): {"ru": p.get("ru"), "world": p.get("world")} for p in first.get("ports") or []}
+            checkhost, note = self._checkhost_or_note(store, now)
+            discovered = (store.get_state(f"srv:{name}", {}) or {}).get("ports")
+            try:
+                second = check_server(srv, discovered, checkhost, self.local, now=now, checkhost_note=note,
+                                      awg=_awg_evidence(store, name), only=want, prior=prior)
+                if second["checkhost"].get("limited"):
+                    store.set_state("checkhost_backoff_until", now + CHECKHOST_BACKOFF_SEC)
+                final = merge_recheck(first, second, now)
+            except Exception as e:
+                log.exception("Повторная проверка %s не удалась", name)
+                final = dict(first, recheck={"ts": now, "error": type(e).__name__, "confirmed": [],
+                                             "transient": [], "first_verdict": first["verdict"],
+                                             "first_title": first["title"]})
+            store.set_state(f"blockpending:{name}", None)
+            save_result(store, final)
+            log.info("Повторная проверка %s: %s (подтверждено %s, кратковременно %s)", name, final["verdict"],
+                     final["recheck"].get("confirmed"), final["recheck"].get("transient"))
+            return final
+        finally:
+            try:
+                store.commit()
+                store.db.close()
+            except Exception:
+                pass
+            with self.lock:
+                self.running.discard(name)
+
+    def due_rechecks(self, now: Optional[float] = None) -> list:
+        """Перепроверки, которые пора выполнить (например, после перезапуска программы таймер потерян)."""
+        now = now or self.clock()
+        store = self.store_factory()
+        try:
+            return [s.name for s in self.get_cfg().servers
+                    if (p := pending_for(store, s.name)) and (p.get("due") or 0) <= now
+                    and (not p.get("running") or now - (p.get("due") or 0) > RUN_STALE_SEC)]
+        finally:
+            store.db.close()
+
+    # ----------------------------------------------------------------- ручная проверка с этого ПК
+    def local_check(self, name: str, port: Optional[int] = None, proto: Optional[str] = None) -> dict:
+        """Сразу проверяет порты сервера только с этого ПК (без check-host и без кулдауна, антидребезг 10 с).
+        port=None — все порты сервера. Результат хранится отдельно и не меняет статус блокировок."""
+        srv = self._server(name)
+        if srv is None:
+            raise ValueError("неизвестный сервер")
+        now = self.clock()
+        store = self.store_factory()
+        try:
+            discovered = (store.get_state(f"srv:{name}", {}) or {}).get("ports")
+            targets = targets_for(srv, discovered)
+            if port is not None:
+                key = f"{int(port)}/{'udp' if proto == 'udp' else 'tcp'}"
+                targets = [t for t in targets if port_key(t) == key]
+                if not targets:
+                    raise ValueError("такого порта у сервера нет")
+            dkey = (name, None if port is None else port_key(targets[0]))
+            with self.lock:
+                last = max(self.local_last.get(dkey, 0), self.local_last.get((name, None), 0))
+                if now - last < LOCAL_DEBOUNCE_SEC:
+                    wait = int(LOCAL_DEBOUNCE_SEC - (now - last)) + 1
+                    return {"started": False, "retry_after": wait,
+                            "message": f"только что проверяли — повторить можно через {wait} с"}
+                self.local_last[dkey] = now
+            with ThreadPoolExecutor(max_workers=max(1, min(6, len(targets)))) as pool:
+                probes = list(pool.map(lambda t: (self.local(t, srv.host, getattr(srv, "block_sni", None))
+                                                  if t.get("probe") else
+                                                  {"status": "skipped", "ms": None, "detail": LOCAL_TEXT["skipped"]}),
+                                       targets))
+            prev = store.get_state(f"blocklocal:{name}") or {}
+            ports = dict(prev.get("ports") or {}) if isinstance(prev, dict) else {}
+            for t, r in zip(targets, probes):
+                stt = local_state(r.get("status"))
+                ports[port_key(t)] = {"port": t["port"], "proto": t["proto"], "label": t["label"], "ts": now,
+                                      "status": r.get("status"), "ms": r.get("ms"),
+                                      "detail": r.get("detail") or LOCAL_TEXT.get(r.get("status"), ""),
+                                      "state": stt, "title": LOCAL_STATE_TITLE[stt]}
+            rec = {"ts": now, "scope": "server" if port is None else port_key(targets[0]), "ports": ports,
+                   "source": "ручная проверка · с этого ПК"}
+            store.set_state(f"blocklocal:{name}", rec)
+            store.commit()
+            return {"started": True, "done": True, "local": rec,
+                    "results": [ports[port_key(t)] for t in targets]}
+        finally:
+            store.db.close()
+
+    # ----------------------------------------------------------------- расписание
     def due_servers(self, now: Optional[float] = None) -> list:
         """Серверы, которым пора на периодическую проверку."""
         cfg = self.get_cfg()
@@ -715,6 +947,8 @@ class BlockChecker:
         try:
             out = []
             for s in cfg.servers:
+                if pending_for(store, s.name):
+                    continue
                 res = latest(store, s.name)
                 if res is None or now - res["ts"] >= period:
                     out.append(s)
@@ -723,19 +957,26 @@ class BlockChecker:
             store.db.close()
 
     def periodic_loop(self, stop: threading.Event, first_delay: float = 300, tick: float = 60):
-        """Фоновая проверка по расписанию (по умолчанию раз в 6 часов). Серверы — по очереди."""
-        if stop.wait(first_delay):
+        """Фоновая проверка по расписанию (по умолчанию раз в 6 часов). Серверы — по очереди.
+        Заодно выполняет перепроверки, чей таймер потерялся (например, после перезапуска)."""
+        if stop.wait(min(first_delay, 30)):
             return
+        started = self.clock()
         while not stop.is_set():
             try:
-                for srv in self.due_servers():
+                for name in self.due_rechecks():
                     if stop.is_set():
                         break
-                    with self.lock:
-                        if srv.name in self.running:
-                            continue
-                        self.running.add(srv.name)
-                    self._run_one(srv)
+                    self.run_recheck(name)
+                if self.clock() - started >= first_delay - 30:
+                    for srv in self.due_servers():
+                        if stop.is_set():
+                            break
+                        with self.lock:
+                            if srv.name in self.running:
+                                continue
+                            self.running.add(srv.name)
+                        self._run_one(srv)
             except Exception:
                 log.exception("Ошибка фоновой проверки блокировок")
             stop.wait(tick)

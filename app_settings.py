@@ -356,6 +356,31 @@ class SettingsContext:
         except ValueError as e:
             raise SettingsError(str(e))
 
+    def block_local(self, payload: dict) -> dict:
+        """Ручная проверка только с этого ПК: сразу, без кулдауна (антидребезг 10 с), без check-host.
+        payload: {"name": сервер, "port": номер (необязательно), "proto": "tcp"/"tls"/"udp"}."""
+        if self.blocks is None:
+            raise SettingsError("проверка блокировок доступна только в режиме приложения")
+        p = payload or {}
+        name = str(p.get("name") or "").strip()
+        port = p.get("port")
+        if port not in (None, ""):
+            try:
+                port = int(port)
+            except (TypeError, ValueError):
+                raise SettingsError("неверный порт")
+            if not 1 <= port <= 65535:
+                raise SettingsError("неверный порт")
+        else:
+            port = None
+        proto = str(p.get("proto") or "tcp").strip().lower()
+        if proto not in ("tcp", "tls", "udp"):
+            raise SettingsError("неверный протокол")
+        try:
+            return self.blocks.local_check(name, port, proto)
+        except ValueError as e:
+            raise SettingsError(str(e))
+
     def dns_log(self, payload: dict) -> dict:
         """Включить / проверить / выключить DNS-журнал на уже сохранённом сервере."""
         import amnezia_monitor as am

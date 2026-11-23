@@ -62,7 +62,7 @@ class FakeRunner(am.Runner):
             total = 2 * 1024 * 1024 if idx != 4 else 1024 * 1024
             avail = int(total * (0.62 - 0.05 * idx))
             return 0, f"MemTotal: {total} kB\nMemFree: 100000 kB\nMemAvailable: {avail} kB\n", ""
-        if cmd == "head -1 /proc/stat":
+        if cmd.startswith("head -1 /proc/stat"):
             total = 1_000_000 + t * 12000          # 2 ядра * 60 с * 100 Гц
             busy = 200_000 + sum(int(12000 * SCENARIO[k]["cpu_busy"][n]) for k in range(1, t + 1))
             idle = total - busy
