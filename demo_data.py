@@ -74,14 +74,15 @@ class FakeRunner(am.Runner):
             return 0, ("Inter-|   Receive  |  Transmit\n face |bytes packets ...\n"
                        f"    lo: 5000 50 0 0 0 0 0 0 5000 50 0 0 0 0 0 0\n"
                        f"  eth0: {rx} 1 0 0 0 0 0 0 {tx} 1 0 0 0 0 0 0\n"), ""
-        if cmd.endswith("ps -a --format '{{.Names}}|{{.Status}}|{{.Image}}'"):
+        if cmd.endswith("ps -a --format '{{.Names}}|{{.Status}}|{{.Image}}|{{.Ports}}'"):
             rows = []
             conts = sorted({c for _, c in CLIENTS[n]})
             for c in conts:
-                rows.append(f"{c}|Up 12 days|amneziavpn/{c}:latest")
+                port = 51820 if "awg" in c else 51821
+                rows.append(f"{c}|Up 12 days|amneziavpn/{c}:latest|0.0.0.0:{port}->{port}/udp, [::]:{port}->{port}/udp")
             if n == "test1":
                 rows.append("amnezia-xray|" + ("Up 12 days" if sc["xray_up"] else "Exited (1) 30 seconds ago")
-                            + "|amneziavpn/amnezia-xray:latest")
+                            + "|amneziavpn/amnezia-xray:latest|0.0.0.0:443->443/tcp")
                 rows.append("amnezia-dns|Up 12 days|amneziavpn/amnezia-dns:latest")
             rows.append("portainer|Up 3 days|portainer/portainer-ce")   # не Amnezia — игнорируется
             return 0, "\n".join(rows) + "\n", ""
@@ -238,6 +239,11 @@ def build_dashboard_demo(store, cfg, now: float, hours: int = 24, step: int = 60
                 xr = frac_left >= 1200
                 r.containers.append({"name": "amnezia-xray", "status": "Up 15 days" if xr else "Exited (1) 15 minutes ago",
                                      "up": xr, "type": "xray"})
+            # порты VPN для проверки блокировок (как их видит docker ps)
+            r.ports = [{"container": c, "type": am.container_type(c), "port": 51820 + i, "proto": "udp"}
+                       for i, c in enumerate(conts)]
+            if n == "test1":
+                r.ports.append({"container": "amnezia-xray", "type": "xray", "port": 443, "proto": "tcp"})
             # DNS: на test1 журнал включён (формат AdGuard), на test2 контейнер есть, но журнал выключен
             if n == "test1":
                 lines = []
@@ -256,6 +262,94 @@ def build_dashboard_demo(store, cfg, now: float, hours: int = 24, step: int = 60
             am.process(store, cfg, r)
 
 
+# ---------------------------------------------------------------------------- демо: проверка блокировок
+DEMO_NODES = {
+    "ru1.node.check-host.net": ["ru", "Russia", "Moscow"],
+    "ru2.node.check-host.net": ["ru", "Russia", "Saint Petersburg"],
+    "ru3.node.check-host.net": ["ru", "Russia", "Ekaterinburg"],
+    "de1.node.check-host.net": ["de", "Germany", "Frankfurt"],
+    "nl1.node.check-host.net": ["nl", "Netherlands", "Amsterdam"],
+    "fi1.node.check-host.net": ["fi", "Finland", "Helsinki"],
+    "se1.node.check-host.net": ["se", "Sweden", "Stockholm"],
+    "pl1.node.check-host.net": ["pl", "Poland", "Warsaw"],
+    "fr1.node.check-host.net": ["fr", "France", "Paris"],
+    "gb1.node.check-host.net": ["gb", "UK", "London"],
+    "us1.node.check-host.net": ["us", "USA", "Los Angeles"],
+}
+# server -> port -> (локальный статус, ok узлов РФ, ok узлов мира)
+DEMO_BLOCKS = {
+    "test1": {22: ("reset_after_banner", 3, 8), 443: ("ok", 3, 8)},
+    "test2": {22: ("ok", 3, 8)},
+    "test3": {22: ("timeout", 0, 0)},
+    "test4": {22: ("ok", 2, 3)},
+}
+
+
+class DemoCheckHost:
+    """Подделка check-host.net для демо и тестов: никаких сетевых запросов."""
+
+    def __init__(self, plan=None):
+        self.plan = plan or DEMO_BLOCKS
+        self.reqs = {}
+
+    def nodes(self):
+        return {n: {"cc": v[0], "country": v[1], "city": v[2]} for n, v in DEMO_NODES.items()}
+
+    def start(self, kind, host, nodes):
+        rid = f"demo{len(self.reqs) + 1}"
+        self.reqs[rid] = (kind, host, list(nodes))
+        return {"request_id": rid, "permanent_link": "https://check-host.net/check-report/" + rid}
+
+    def wait(self, rids, **kw):
+        return {rid: self.result(rid) for rid in rids}
+
+    def result(self, rid):
+        kind, host, nodes = self.reqs[rid]
+        srv = next((s.name for s in DEMO_SERVERS if host.split(":")[0] == s.host), None)
+        plan = self.plan.get(srv, {})
+        if kind == "ping":
+            alive = any(w for _, _, w in plan.values()) or any(r for _, r, _ in plan.values())
+            return {n: ([[["OK", 0.03 + i * 0.004, host]] * 4] if alive else [[["TIMEOUT", 3.0]] * 4])
+                    for i, n in enumerate(nodes)}
+        port = int(host.rsplit(":", 1)[1])
+        _, ru_ok, w_ok = plan.get(port, ("ok", 3, 8))
+        out, ri, wi = {}, 0, 0
+        for i, n in enumerate(nodes):
+            if n.startswith("ru"):
+                ok = ri < ru_ok
+                ri += 1
+            else:
+                ok = wi < w_ok
+                wi += 1
+            out[n] = [{"time": 0.02 + i * 0.005, "address": host.split(":")[0]}] if ok else \
+                [{"error": "Connection timed out"}]
+        return out
+
+
+def demo_local_probe(target, host, sni=None):
+    srv = next((s.name for s in DEMO_SERVERS if s.host == host), None)
+    if target.get("probe") is None:
+        return {"status": "skipped", "ms": None, "detail": "не проверялся"}
+    st = DEMO_BLOCKS.get(srv, {}).get(target["port"], ("ok", 3, 8))[0]
+    import blockcheck
+    r = {"status": st, "ms": None if st in blockcheck.LOCAL_CONN_FAIL else 41.0}
+    if st == "ok":
+        r["detail"] = {"ssh": "SSH-баннер: SSH-2.0-OpenSSH_9.6p1", "tls": "TLS-рукопожатие прошло (TLSv1.3)"}.get(
+            target["probe"], "TCP-соединение установлено")
+    else:
+        r["detail"] = blockcheck.LOCAL_TEXT.get(st, st)
+    return r
+
+
+def demo_blocks(store, cfg, now):
+    import blockcheck
+    for srv in cfg.servers:
+        discovered = (store.get_state(f"srv:{srv.name}", {}) or {}).get("ports")
+        res = blockcheck.check_server(srv, discovered, DemoCheckHost(), demo_local_probe,
+                                      now=now - 600, awg=blockcheck._awg_evidence(store, srv.name))
+        blockcheck.save_result(store, res)
+
+
 def demo_store(path=None, now=None):
     """Создаёт демо-базу для панели; возвращает (путь, cfg, now)."""
     import time
@@ -264,5 +358,6 @@ def demo_store(path=None, now=None):
     cfg = am.Config(servers=DEMO_SERVERS, interval=600)
     store = am.Store(path)
     build_dashboard_demo(store, cfg, now)
+    demo_blocks(store, cfg, now)
     store.db.close()
     return path, cfg, now

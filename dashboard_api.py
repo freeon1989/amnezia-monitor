@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import time
 from collections import defaultdict
+
+import blockcheck
 from typing import Optional
 
 DNS_NOTES = {
@@ -34,17 +36,25 @@ def api_servers(store, cfg=None, now: Optional[float] = None) -> list:
     out, hosts = [], _hosts(cfg)
     for n in server_names(store, cfg):
         last = store.db.execute("SELECT * FROM polls WHERE server=? ORDER BY ts DESC LIMIT 1", (n,)).fetchone()
+        blk = store.db.execute("SELECT ts, verdict FROM block_checks WHERE server=? ORDER BY ts DESC LIMIT 1",
+                               (n,)).fetchone()
+        block = {"verdict": blk["verdict"], "ts": blk["ts"]} if blk else None
         if not last:
-            out.append({"name": n, "host": hosts.get(n), "status": "nodata"})
+            out.append({"name": n, "host": hosts.get(n), "status": "nodata", "block": block})
             continue
         out.append({
             "name": n, "host": hosts.get(n),
             "status": "up" if last["ssh_ok"] else "down",
             "age": round(now - last["ts"]), "tcp_ms": last["tcp_ms"], "cpu": last["cpu_pct"],
             "mem": last["mem_pct"], "peers_online": last["peers_online"], "peers_total": last["peers_total"],
-            "rx_bps": last["rx_bps"], "tx_bps": last["tx_bps"], "error": last["error"],
+            "rx_bps": last["rx_bps"], "tx_bps": last["tx_bps"], "error": last["error"], "block": block,
         })
     return out
+
+
+def api_blocks(store, name: str, now: Optional[float] = None) -> dict:
+    """Проверка блокировок: последний результат, история вердиктов, кулдаун. Только чтение базы."""
+    return blockcheck.status_for(store, name, now)
 
 
 def bucketize(points: list, start: float, end: float, buckets: int, how: str = "avg") -> list:
@@ -204,4 +214,5 @@ def api_snapshot(store, cfg=None, now: Optional[float] = None) -> dict:
     now = now or time.time()
     return {"servers": api_servers(store, cfg, now),
             "details": {n: api_server(store, cfg, n, now) for n in server_names(store, cfg)},
+            "blocks": {n: api_blocks(store, n, now) for n in server_names(store, cfg)},
             "generated": now}

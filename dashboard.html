@@ -104,6 +104,20 @@ tr:last-child td{border-bottom:0}
 .welcome h2{margin:0 0 6px;font-size:18px}.welcome p{margin:0;color:#c8d0f5}
 .kv{display:grid;grid-template-columns:auto 1fr;gap:6px 12px;font-size:13px}.kv span:nth-child(odd){color:var(--muted)}
 .kv code{font-size:12px;word-break:break-all;color:#c8d0f5}
+.vban{display:flex;gap:14px;align-items:center;padding:14px 16px;border-radius:12px;border:1px solid var(--line);background:#5d689414}
+.vban .ic{font-size:22px;line-height:1}.vban .tt{font-weight:700;font-size:15px}.vban .sb{color:var(--muted);font-size:12px;margin-top:2px}
+.vban.ok{border-color:#34d39966;background:#34d39912}.vban.ok .tt{color:var(--green)}
+.vban.blocked_ru,.vban.down{border-color:#f8717166;background:#f8717112}.vban.blocked_ru .tt,.vban.down .tt{color:var(--red)}
+.vban.partial{border-color:#fbbf2466;background:#fbbf2412}.vban.partial .tt{color:var(--amber)}
+.blk-sum{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-top:12px}
+.blk-sum .bx{background:var(--card2);border:1px solid var(--line);border-radius:12px;padding:10px 12px;font-size:13px}
+.blk-sum .bx .l{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.7px;margin-bottom:4px}
+.blk-sum .bx b{font-variant-numeric:tabular-nums}
+tr.pick{cursor:pointer}tr.pick:hover td{background:#1b2550}tr.pick.sel td{background:#22306a}
+.vd{font-size:12px;white-space:nowrap}.vd.ok{color:var(--green)}.vd.blocked_ru,.vd.down{color:var(--red)}.vd.partial{color:var(--amber)}.vd.unknown,.vd.unverifiable{color:var(--dim)}
+.hist{display:flex;gap:3px;align-items:center}.hist i{width:9px;height:9px;border-radius:3px;background:var(--dim);display:inline-block}
+.hist i.ok{background:var(--green)}.hist i.blocked_ru,.hist i.down{background:var(--red)}.hist i.partial{background:var(--amber)}
+@media (max-width:900px){.blk-sum{grid-template-columns:1fr}}
 @media (max-width:1050px){.set-grid{grid-template-columns:1fr}}
 @media (max-width:1050px){.kpis{grid-template-columns:repeat(3,1fr)}.row2,.row4{grid-template-columns:1fr}}
 @media (max-width:640px){.kpis{grid-template-columns:repeat(2,1fr)}.wrap{padding:14px}}
@@ -121,6 +135,7 @@ tr:last-child td{border-bottom:0}
   <div id="dashView">
   <nav class="tabs" id="tabs"></nav>
   <section class="grid kpis" id="kpis"></section>
+  <section class="card users" id="blkCard"><h3><span>Проверка блокировок · Россия и мир</span><span class="legend" id="blkAge"></span></h3><div id="blk"></div></section>
   <section class="grid row2">
     <div class="card"><h3>Ресурсы сервера</h3><div id="res"></div></div>
     <div class="card"><h3><span>Трафик сетевого интерфейса сервера, 24 ч</span><span class="legend"><span><i style="background:var(--down)"></i>исходящий</span><span><i style="background:var(--up)"></i>входящий</span></span></h3><div id="traffic"></div></div>
@@ -168,6 +183,7 @@ async function load(){
     else if(current){
       detail = STATIC ? STATIC.details[current] : await getJSON("/api/server?name="+encodeURIComponent(current));
       renderDetail();
+      try{ await loadBlocks(); }catch(e){ $("blk").innerHTML=`<div class="empty">не удалось загрузить проверку блокировок</div>`; }
     }
     lastLoad = Date.now(); $("pulse").style.background="var(--green)";
   }catch(e){ $("upd").textContent="нет связи с агентом ("+e.message+")"; $("pulse").style.background="var(--red)"; }
@@ -176,13 +192,15 @@ function tick(){
   if(STATIC){ $("upd").textContent = "статичная копия от "+ddhhmm(STATIC.generated); $("pulse").style.display="none"; return; }
   if(view==="settings"){ $("upd").textContent = "настройки"; return; }
   if(lastLoad) $("upd").textContent = "обновлено "+fmtD((Date.now()-lastLoad)/1000)+" назад";
+  updateBlkClock();
 }
-function select(name){ current=name; dnsUser=null; location.hash=encodeURIComponent(name); load(); }
+function select(name){ current=name; dnsUser=null; blk=null; blkPort=0; blkMsg=null; location.hash=encodeURIComponent(name); load(); }
 
 function renderTabs(){
   $("tabs").innerHTML = servers.map(s=>{
-    const sub = s.status==="nodata" ? "нет данных" : s.status==="down" ? "недоступен" :
+    let sub = s.status==="nodata" ? "нет данных" : s.status==="down" ? "недоступен" :
       `${s.peers_online??0}/${s.peers_total??0} онлайн · ${s.tcp_ms!=null?Math.round(s.tcp_ms)+" мс":"—"}`;
+    if(s.block && s.block.verdict==="blocked_ru") sub += " · 🚫 блокировка";
     return `<button class="tab ${s.name===current?"active":""}" data-n="${esc(s.name)}"><span class="dot ${s.status}"></span>
       <span><div class="nm">${esc(s.name)}</div><div class="sub">${esc(sub)}</div></span></button>`;
   }).join("");
@@ -355,8 +373,128 @@ function renderNoServers(){
   const msg = META.settings ? `Серверов пока нет. <button class="btn" onclick="showView('settings')">Добавить сервер</button>`
                             : "Серверов пока нет — добавьте их в servers.yaml.";
   $("kpis").innerHTML = `<div class="card" style="grid-column:1/-1;text-align:center;padding:30px">${msg}</div>`;
-  ["res","traffic","users","dns"].forEach(id=>$(id).innerHTML=`<div class="empty">нет данных</div>`);
+  ["res","traffic","users","dns","blk"].forEach(id=>$(id).innerHTML=`<div class="empty">нет данных</div>`);
   $("events").innerHTML=""; $("foot").textContent="";
+}
+
+/* ---------------------------------------------------------------- Проверка блокировок */
+let blk = null, blkTab = "ru", blkPort = 0, blkBusy = false, blkMsg = null, blkDeadline = 0, blkPoll = null, blkStamp = 0;
+const VD_TEXT = {ok:"доступен", blocked_ru:"блокировка в РФ", down:"недоступен", partial:"частично", unknown:"нет данных", unverifiable:"не проверяется извне"};
+const VD_ICON = {ok:"✅", blocked_ru:"🚫", down:"🔴", partial:"⚠️", unknown:"❔", unverifiable:"➖"};
+const LOCAL_OK = ["ok","tls_alert","not_ssh"];
+function ago(ts){ const s=Math.max(0,Date.now()/1000-ts); return s<60? "только что" : fmtD(s)+" назад"; }
+async function loadBlocks(){
+  if(!current) return;
+  const name = current;
+  const st = STATIC ? ((STATIC.blocks||{})[name] || null) : await getJSON("/api/blocks?name="+encodeURIComponent(name));
+  if(name!==current) return;
+  blk = st; blkStamp = Date.now();
+  blkDeadline = st && st.retry_after ? Date.now()+st.retry_after*1000 : 0;
+  renderBlocks();
+  if(st && st.running && !STATIC){ clearTimeout(blkPoll); blkPoll=setTimeout(()=>loadBlocks().catch(()=>{}), 3000); }
+}
+function grpText(g, label, ping){
+  if(!g || !g.n) return `<div class="bx"><div class="l">${label}</div><span style="color:var(--dim)">нет данных check-host</span></div>`;
+  return `<div class="bx"><div class="l">${label}</div>
+    ${ping && ping.n? `сервер найден <b>${ping.found}/${ping.n}</b> · `:""}порт ответил <b class="${g.ok===g.n?"ok":g.ok? "warn":"bad"}">${g.ok}/${g.n}</b>
+    ${g.ms!=null? `<div style="color:var(--muted);font-size:12px;margin-top:3px">задержка ~${Math.round(g.ms)} мс</div>`:""}</div>`;
+}
+function localCell(l){
+  if(!l || l.status==="skipped") return `<span style="color:var(--dim)">—</span>`;
+  const cls = LOCAL_OK.includes(l.status)? "ok" : "bad";
+  return `<span class="${cls}">${LOCAL_OK.includes(l.status)? "●":"✕"}</span> ${esc(l.detail||l.status)}${l.ms!=null? ` <span style="color:var(--dim)">${Math.round(l.ms)} мс</span>`:""}`;
+}
+function nodeCell(g){ if(!g || !g.n) return `<span style="color:var(--dim)">—</span>`;
+  return `<span class="${g.ok===g.n?"ok":g.ok?"warn":"bad"}">${g.ok}/${g.n}</span>${g.ms!=null? ` <span style="color:var(--dim)">${Math.round(g.ms)} мс</span>`:""}`; }
+function blkButton(){
+  if(!META.settings || STATIC) return "";
+  const running = blkBusy || (blk && blk.running);
+  const left = blkDeadline? Math.max(0, Math.round((blkDeadline-Date.now())/1000)) : 0;
+  const txt = running? "Проверяю… (до минуты)" : left>0? `Повторить через ${Math.floor(left/60)}:${String(left%60).padStart(2,"0")}` : "Проверить сейчас";
+  return `<button class="btn sm" id="blkBtn" ${running||left>0? "disabled":""}>${txt}</button>`;
+}
+function updateBlkClock(){
+  if(!blk) return;
+  const r = blk.result;
+  if(r && $("blkAge")) $("blkAge").textContent = "проверено "+ago(r.ts);
+  const b = $("blkBtn"); if(!b) return;
+  const left = blkDeadline? Math.max(0, Math.round((blkDeadline-Date.now())/1000)) : 0;
+  if(blkBusy || blk.running) return;
+  if(left>0){ b.disabled=true; b.textContent=`Повторить через ${Math.floor(left/60)}:${String(left%60).padStart(2,"0")}`; }
+  else if(b.disabled){ b.disabled=false; b.textContent="Проверить сейчас"; }
+}
+async function runBlocks(){
+  if(blkBusy || !current) return;
+  blkBusy = true; blkMsg = null; renderBlocks();
+  try{
+    const j = await api("POST","/api/blocks/check",{name: current});
+    if(!j.started && !j.running) blkMsg = {text: j.message||"не запущено"};
+  }catch(e){ blkMsg = {text: String(e.message||e), err:true}; }
+  finally{ blkBusy = false; }
+  try{ await loadBlocks(); }catch(e){ renderBlocks(); }
+}
+function renderBlocks(){
+  const el = $("blk"); if(!el) return;
+  const st = blk, r = st && st.result;
+  const msg = blkMsg? `<div class="msg ${blkMsg.err?"err":""}">${esc(blkMsg.text)}</div>` : "";
+  const foot = `<p style="color:var(--dim);font-size:12px;margin:10px 0 0">Проверка только снаружи: на сервер программа не входит и ничего на нём не меняет.
+    С этого ПК — TCP-подключение, обмен баннерами SSH и TLS-рукопожатие на портах Xray; из России и других стран — узлы
+    <a href="https://check-host.net/" target="_blank" rel="noopener" style="color:var(--muted)">check-host.net</a>. Результат хранится 30 минут.
+    Если на этом ПК VPN пускает весь трафик через туннель, проверка «с этого ПК» пойдёт через VPN и блокировку в РФ не покажет.</p>`;
+  if(!r){
+    $("blkAge").textContent = "";
+    el.innerHTML = `<div class="note"><b>${st && st.running? "Идёт первая проверка…" : "Проверки ещё не было."}</b><br>
+      Нажмите «Проверить сейчас»: программа проверит SSH и порты VPN с этого ПК и с узлов в России и за рубежом.</div>
+      <div class="actions">${blkButton()}</div>${msg}${foot}`;
+    const b=$("blkBtn"); if(b) b.onclick=runBlocks; return;
+  }
+  $("blkAge").textContent = "проверено "+ago(r.ts);
+  const ports = r.ports||[];
+  if(blkPort>=ports.length) blkPort=0;
+  const sel = ports[blkPort] || {};
+  const h = st.history||[];
+  const changed = h.length>1 && h[0].verdict!==h[1].verdict;
+  const ch = r.checkhost||{};
+  const sumP = r.ping && r.ping.summary || {};
+  const loc = sel.local;
+  let html = `<div class="vban ${r.verdict}"><span class="ic">${VD_ICON[r.verdict]||"❔"}</span><div style="flex:1;min-width:0">
+      <div class="tt">${esc(r.title)}</div>
+      <div class="sb">${esc(r.host||"")} · проверено ${ddhhmm(r.ts)} · ${r.duration!=null? "длилось "+Math.round(r.duration)+" с":""}</div></div>
+      <div class="hist" title="последние проверки, новые слева">${h.slice(0,20).map(x=>`<i class="${x.verdict}" title="${ddhhmm(x.ts)}: ${esc(VD_TEXT[x.verdict]||x.verdict)}"></i>`).join("")}</div></div>`;
+  if(changed) html += `<div class="msg" style="border:1px solid #5b6cff55;background:#5b6cff12">Статус изменился: было «${esc(VD_TEXT[h[1].verdict]||h[1].verdict)}» (${ddhhmm(h[1].ts)}), стало «${esc(VD_TEXT[h[0].verdict]||h[0].verdict)}».</div>`;
+  if(ch.error) html += `<div class="note" style="margin-top:10px"><b>Узлы check-host:</b> ${esc(ch.error)}</div>`;
+  html += `<div class="blk-sum">
+      <div class="bx"><div class="l">С этого ПК · ${esc(sel.label||"")}:${sel.port||""}</div>${localCell(loc)}</div>
+      ${grpText(sel.summary && sel.summary.ru, `Россия · ${esc(sel.label||"")}:${sel.port||""}`, sumP.ru)}
+      ${grpText(sel.summary && sel.summary.world, `Мир · ${esc(sel.label||"")}:${sel.port||""}`, sumP.world)}</div>`;
+  html += `<div class="tablewrap" style="margin-top:12px"><table><thead><tr><th>Порт</th><th>Служба</th><th>С этого ПК</th><th>Узлы РФ</th><th>Мир</th><th>Вердикт</th></tr></thead><tbody>${
+    ports.map((p,i)=>`<tr class="pick ${i===blkPort?"sel":""}" data-i="${i}">
+      <td><b>${p.port}</b>/${esc(p.proto==="tls"?"tcp":p.proto)}</td>
+      <td>${esc(p.label)}${p.container? `<div style="color:var(--dim);font-size:11px">${esc(p.container)}</div>`:""}${p.source==="manual"? `<div style="color:var(--dim);font-size:11px">задан вручную</div>`:""}</td>
+      <td>${p.proto==="udp"? `<span style="color:var(--dim)">—</span>` : localCell(p.local)}</td>
+      <td>${p.proto==="udp"? "—" : nodeCell(p.summary.ru)}</td><td>${p.proto==="udp"? "—" : nodeCell(p.summary.world)}</td>
+      <td><span class="vd ${p.verdict}" title="${esc(p.detail||"")}">${VD_ICON[p.verdict]||""} ${esc(VD_TEXT[p.verdict]||p.verdict)}</span></td></tr>`).join("")}</tbody></table></div>`;
+  if(sel.detail) html += `<p style="font-size:13px;margin:10px 0 0;color:#c8d0f5">${esc(sel.label)}:${sel.port} — ${esc(sel.detail)}</p>`;
+  if(sel.proto!=="udp" && ch.ok){
+    const nodes = (blkTab==="ru"? sel.ru : sel.world) || [];
+    const pings = (blkTab==="ru"? (r.ping||{}).ru : (r.ping||{}).world) || [];
+    const pm = {}; pings.forEach(x=>pm[x.node]=x);
+    html += `<div class="chips" style="margin-top:14px">
+        <span class="chip click ${blkTab==="ru"?"sel":""}" data-t="ru">Россия <span style="color:var(--dim)">${(sel.ru||[]).length}</span></span>
+        <span class="chip click ${blkTab==="world"?"sel":""}" data-t="world">Мир <span style="color:var(--dim)">${(sel.world||[]).length}</span></span></div>
+      <div class="tablewrap"><table><thead><tr><th>Узел</th><th>Город</th><th>Пинг (сервер найден)</th><th>Порт ${sel.port}</th></tr></thead><tbody>${
+      nodes.length? nodes.map(n=>{ const pg=pm[n.node]||{};
+        return `<tr><td>${esc(n.node)} <span style="color:var(--dim)">${esc((n.cc||"").toUpperCase())}</span></td><td>${esc(n.city||n.country||"")}</td>
+          <td>${pg.found==null? `<span style="color:var(--dim)">—</span>` : pg.found? `<span class="ok">● да</span>${pg.ms!=null? ` <span style="color:var(--dim)">${Math.round(pg.ms)} мс</span>`:""}` : `<span class="bad">✕ нет</span>`}</td>
+          <td>${n.ok==null? `<span style="color:var(--dim)">не ответил</span>` : n.ok? `<span class="ok">● подключился</span> <span style="color:var(--dim)">${n.ms!=null?Math.round(n.ms)+" мс":""}</span>` : `<span class="bad">✕ ${esc(n.error||n.status)}</span>`}</td></tr>`; }).join("")
+        : `<tr><td colspan="4" class="empty">узлов нет</td></tr>`}</tbody></table></div>`;
+  }
+  if(blkTab==="ru" && ch.ok && ch.ru_nodes!=null && ch.ru_nodes<5) html += `<p style="color:var(--dim);font-size:12px;margin:8px 0 0">У check-host.net сейчас ${ch.ru_nodes} узл. в России — поэтому так важна проверка с этого ПК.</p>`;
+  html += `<div class="actions">${blkButton()}${(ch.links||[]).filter(Boolean).length? `<span style="color:var(--dim);font-size:12px">отчёты check-host: ${(ch.links||[]).filter(Boolean).map((u,i)=>`<a href="${esc(u)}" target="_blank" rel="noopener" style="color:var(--muted)">${i===0?"пинг":"порт "+(i)}</a>`).join(" · ")}</span>`:""}</div>${msg}${foot}`;
+  el.innerHTML = html;
+  el.querySelectorAll("tr.pick").forEach(tr=>tr.onclick=()=>{ blkPort=+tr.dataset.i; renderBlocks(); });
+  el.querySelectorAll(".chip.click[data-t]").forEach(c=>c.onclick=()=>{ blkTab=c.dataset.t; renderBlocks(); });
+  const b=$("blkBtn"); if(b) b.onclick=runBlocks;
 }
 
 /* ---------------------------------------------------------------- Настройки */
@@ -400,6 +538,8 @@ function serverForm(){
        <span class="hint">${saved? "Пароль сохранён. Введите новый, только если хотите заменить." : "В браузер пароль не возвращается."} Защита: ${esc(S.encryption)}.</span></div>
     <div class="fld"><label>Путь к SSH-ключу (необязательно)</label><input id="f_key" value="${esc(e.key_path||"")}" placeholder="C:\\Users\\вы\\.ssh\\id_ed25519"></div>
     <div class="fld s6"><label>Заметка / домен (необязательно)</label><input id="f_notes" value="${esc(e.notes||"")}" maxlength="200" placeholder="например, vpn.example.com, хостинг, тариф"></div>
+    <div class="fld s6"><label>Доп. порты для проверки блокировок (необязательно)</label><input id="f_bports" value="${esc(e.block_ports||"")}" maxlength="300" placeholder="например, 8443/tls, 2053/tcp, 51820/udp">
+      <span class="hint">SSH и порты VPN из docker ps программа находит сама. Сюда — порты контейнеров в сети хоста. tls — порт Xray/Reality.</span></div>
   </div>
   <div class="actions">
     <button class="btn" id="b_save" onclick="saveServer()">Сохранить</button>
@@ -476,6 +616,9 @@ function renderSettings(){
         <div class="fld s6"><label>Интервал опроса, секунд</label><input id="g_int" type="number" min="15" max="3600" value="${S.interval}"><span class="hint">15–3600. Новые настройки применяются сразу после сохранения.</span></div>
         <div class="fld s6"><label>Токен Telegram-бота (необязательно)</label><input id="g_tok" type="password" autocomplete="off" placeholder="${S.telegram.has_token? "•••••••• токен сохранён — пусто = не менять" : "123456789:AA..."}"></div>
         <div class="fld s6"><label>Chat ID (необязательно)</label><input id="g_chat" value="${esc(S.telegram.chat_id)}" placeholder="123456789"><span class="hint">Без токена и chat id уведомления просто не отправляются — панель работает и так.</span></div>
+        <div class="fld s6"><label style="display:flex;gap:8px;align-items:center"><input type="checkbox" id="g_bc" ${S.block_check && S.block_check.enabled? "checked":""}> Проверять блокировки в фоне</label>
+          <span class="hint">С этого ПК и с узлов check-host.net (адреса серверов уходят этому сервису). Смена статуса появится в «Событиях».</span></div>
+        <div class="fld s6"><label>Период фоновой проверки блокировок, часов</label><input id="g_bch" type="number" min="1" max="168" value="${esc(S.block_check? S.block_check.interval_hours : 6)}"><span class="hint">1–168, по умолчанию 6.</span></div>
       </div>
       <div class="actions"><button class="btn" onclick="saveGeneral()">Сохранить</button>
         ${S.telegram.has_token? `<button class="btn danger sm" onclick="saveGeneral(true)">Удалить токен</button>`:""}</div>
@@ -487,10 +630,12 @@ function renderSettings(){
   </div></div>`;
 }
 function payload(servers, general){
-  return { servers, interval: general? +fv("g_int") : S.interval,
+  const body = { servers, interval: general? +fv("g_int") : S.interval,
     telegram: general || {chat_id: S.telegram.chat_id} };
+  if(general) body.block_check = {enabled: !!($("g_bc")||{}).checked, interval_hours: +fv("g_bch")||6};
+  return body;
 }
-const keep = s => ({orig_name:s.name, name:s.name, host:s.host, port:s.port, user:s.user, key_path:s.key_path, notes:s.notes});
+const keep = s => ({orig_name:s.name, name:s.name, host:s.host, port:s.port, user:s.user, key_path:s.key_path, notes:s.notes, block_ports:s.block_ports||""});
 async function save(body, okText){
   try{ S = await api("POST","/api/settings", body); setMsg={ok:okText}; return true; }
   catch(e){ setMsg={err:e.message}; return false; }
@@ -498,7 +643,7 @@ async function save(body, okText){
 }
 function formServer(){
   const e=editing; return {orig_name: e.isNew? null : e.orig_name, name:fv("f_name").trim(), host:fv("f_host").trim(), port:+fv("f_port")||22,
-    user:fv("f_user").trim()||"root", password:fv("f_pw"), key_path:fv("f_key").trim(), notes:fv("f_notes").trim(),
+    user:fv("f_user").trim()||"root", password:fv("f_pw"), key_path:fv("f_key").trim(), notes:fv("f_notes").trim(), block_ports:fv("f_bports").trim(),
     clear_password: !!($("f_clear")||{}).checked};
 }
 async function saveServer(){
@@ -513,7 +658,7 @@ async function testServer(){
   try{ testRes.form = await api("POST","/api/settings/test",{server:f}); }catch(e){ testRes.form={error:e.message}; }
   renderSettings(); restoreForm(keepVals);
 }
-function restoreForm(f){ if(!editing) return; [["f_name","name"],["f_host","host"],["f_port","port"],["f_user","user"],["f_pw","password"],["f_key","key_path"],["f_notes","notes"]].forEach(([id,k])=>{ if($(id)) $(id).value=f[k]??""; }); }
+function restoreForm(f){ if(!editing) return; [["f_name","name"],["f_host","host"],["f_port","port"],["f_user","user"],["f_pw","password"],["f_key","key_path"],["f_notes","notes"],["f_bports","block_ports"]].forEach(([id,k])=>{ if($(id)) $(id).value=f[k]??""; }); }
 async function testRow(i){
   testRes["r"+i]={pending:true}; renderSettings();
   try{ testRes["r"+i] = await api("POST","/api/settings/test",{server:keep(S.servers[i])}); }catch(e){ testRes["r"+i]={error:e.message}; }

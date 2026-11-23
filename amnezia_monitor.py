@@ -62,6 +62,8 @@ class ServerCfg:
     docker_cmd: str = "docker"
     timeout: int = 10
     notes: str = ""
+    block_ports: list = field(default_factory=list)   # [(port, "tcp"|"tls"|"udp")] — доп. порты для проверки блокировок
+    block_sni: Optional[str] = None                   # SNI для TLS-проверки портов Xray/Reality
 
     def safe(self) -> str:
         auth = "key" if self.key_path else ("password" if self.password else "agent")
@@ -80,6 +82,31 @@ class Config:
     handshake_online_sec: int = ONLINE_HANDSHAKE_SEC
     clients: dict = field(default_factory=dict)        # pubkey -> имя
     daily_summary_hour: Optional[int] = None           # час локального времени, напр. 9
+    block_check_enabled: bool = True                   # фоновая проверка блокировок
+    block_check_hours: float = 6.0                     # период фоновой проверки, часов
+
+
+_PORT_ITEM_RE = re.compile(r"^(\d{1,5})(?:/(tcp|udp|tls))?$", re.I)
+
+
+def parse_port_list(value) -> list:
+    """'443/tls, 51820/udp, 8443' -> [(443, 'tls'), (51820, 'udp'), (8443, 'tcp')]. Ошибка -> ValueError.
+    tls — TCP-порт с TLS (Xray/Reality): проверяется рукопожатием TLS, а не только подключением."""
+    if value is None or value == "":
+        return []
+    items = value if isinstance(value, (list, tuple)) else re.split(r"[,;\s]+", str(value))
+    out = []
+    for it in items:
+        it = str(it).strip()
+        if not it:
+            continue
+        m = _PORT_ITEM_RE.match(it)
+        if not m or not 1 <= int(m.group(1)) <= 65535:
+            raise ValueError(f"неверный порт: {it!r} (пример: 443/tls, 8080/tcp, 51820/udp)")
+        pair = (int(m.group(1)), (m.group(2) or "tcp").lower())
+        if pair not in out:
+            out.append(pair)
+    return out
 
 
 def load_dotenv(path: Path) -> None:
@@ -154,16 +181,26 @@ def load_config(path: str, allow_empty: bool = False) -> Config:
                 log.warning("Серверы %s и %s используют одинаковый пароль — рекомендуем разные",
                             pw_seen[password], name)
             pw_seen.setdefault(password, name)
+        try:
+            block_ports = parse_port_list(s.get("block_ports"))
+        except ValueError as e:
+            raise ConfigError(f"{name}: block_ports — {e}")
         servers.append(ServerCfg(
             name=str(name), host=str(host), port=int(s.get("port", 22)),
             user=str(s.get("user", "root")), key_path=key_path, password=password,
             docker_cmd=str(s.get("docker_cmd", "docker")), timeout=int(s.get("timeout", 10)),
-            notes=str(s.get("notes") or ""),
+            notes=str(s.get("notes") or ""), block_ports=block_ports,
+            block_sni=(str(s["block_sni"]).strip() or None) if s.get("block_sni") else None,
         ))
     if not servers and not allow_empty:
         raise ConfigError("В конфиге нет ни одного сервера (секция servers)")
     tg = raw.get("telegram") or {}
     th = raw.get("thresholds") or {}
+    bc = raw.get("block_check") or {}
+    try:
+        bc_hours = float(bc.get("interval_hours", 6))
+    except (TypeError, ValueError):
+        raise ConfigError("block_check.interval_hours должен быть числом")
     return Config(
         servers=servers,
         interval=int(raw.get("interval", DEFAULT_INTERVAL)),
@@ -176,6 +213,8 @@ def load_config(path: str, allow_empty: bool = False) -> Config:
         handshake_online_sec=int(th.get("handshake_online_sec", ONLINE_HANDSHAKE_SEC)),
         clients={str(k): str(v) for k, v in (raw.get("clients") or {}).items()},
         daily_summary_hour=raw.get("daily_summary_hour"),
+        block_check_enabled=bool(bc.get("enabled", True)),
+        block_check_hours=min(168.0, max(1.0, bc_hours)),
     )
 
 # ---------------------------------------------------------------------------
@@ -261,7 +300,7 @@ def net_rates(prev: Optional[dict], cur: dict, dt: float) -> tuple:
 
 
 def parse_docker_ps(text: str) -> list:
-    """Строки формата '{{.Names}}|{{.Status}}|{{.Image}}' -> список контейнеров Amnezia."""
+    """Строки формата '{{.Names}}|{{.Status}}|{{.Image}}[|{{.Ports}}]' -> список контейнеров Amnezia."""
     out = []
     for line in text.splitlines():
         parts = line.strip().split("|")
@@ -274,6 +313,42 @@ def parse_docker_ps(text: str) -> list:
         out.append({"name": name, "status": status, "up": status.lower().startswith("up"),
                     "type": container_type(name)})
     return out
+
+
+_PUBLISHED_RE = re.compile(r"(?:^|[\s,])(?:\d{1,3}(?:\.\d{1,3}){3}|\[?[0-9a-fA-F:]*\]?):(\d{1,5})->\d{1,5}/(tcp|udp)")
+
+
+def parse_published_ports(text: str) -> list:
+    """Опубликованные порты работающих VPN-контейнеров из `docker ps` (4-е поле {{.Ports}}).
+    Берутся контейнеры с понятным типом (awg, xray, openvpn …), в том числе не Amnezia (cascade-xray).
+    Диапазоны портов пропускаются. -> [{"container", "type", "port", "proto"}]"""
+    out, seen = [], set()
+    for line in text.splitlines():
+        parts = line.strip().split("|")
+        if len(parts) < 4 or not parts[0] or not parts[1].lower().startswith("up"):
+            continue
+        ctype = container_type(parts[0])
+        if ctype in ("other", "dns", "sftp"):
+            continue
+        for m in _PUBLISHED_RE.finditer(" " + parts[3]):
+            key = (int(m.group(1)), m.group(2))
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append({"container": parts[0], "type": ctype, "port": key[0], "proto": key[1]})
+    return out
+
+
+def parse_wg_listen_ports(text: str) -> list:
+    """listen-port из строк интерфейса `awg/wg show all dump`. Приватный ключ (2-е поле) не читается."""
+    ports = []
+    for line in text.splitlines():
+        f = line.rstrip("\n").split("\t")
+        if len(f) < 5 or len(f) == 9:
+            continue
+        if f[3].isdigit() and 0 < int(f[3]) <= 65535 and int(f[3]) not in ports:
+            ports.append(int(f[3]))
+    return ports
 
 
 def container_type(name: str) -> str:
@@ -515,7 +590,7 @@ READ_ONLY_COMMANDS = {
     "stat": "head -1 /proc/stat",
     "netdev": "cat /proc/net/dev",
     # docker_cmd подставляется из конфига ("docker" или "sudo -n docker")
-    "docker_ps": "{docker} ps -a --format '{{{{.Names}}}}|{{{{.Status}}}}|{{{{.Image}}}}'",
+    "docker_ps": "{docker} ps -a --format '{{{{.Names}}}}|{{{{.Status}}}}|{{{{.Image}}}}|{{{{.Ports}}}}'",
     "wg_dump": "{docker} exec {c} sh -c 'awg show all dump 2>/dev/null || wg show all dump'",
     "clients": "{docker} exec {c} sh -c 'cat /opt/amnezia/{t}/clientsTable 2>/dev/null || "
                "cat /opt/amnezia/*/clientsTable 2>/dev/null'",
@@ -643,6 +718,9 @@ CREATE TABLE IF NOT EXISTS events (
 CREATE TABLE IF NOT EXISTS state (key TEXT PRIMARY KEY, value TEXT);
 CREATE TABLE IF NOT EXISTS dns (
   id INTEGER PRIMARY KEY, ts REAL, server TEXT, client TEXT, ip TEXT, domain TEXT, site TEXT, qtype TEXT);
+CREATE TABLE IF NOT EXISTS block_checks (
+  id INTEGER PRIMARY KEY, ts REAL, server TEXT, verdict TEXT, data TEXT);
+CREATE INDEX IF NOT EXISTS idx_block ON block_checks(server, ts);
 CREATE INDEX IF NOT EXISTS idx_dns ON dns(server, ts);
 CREATE INDEX IF NOT EXISTS idx_polls ON polls(server, ts);
 CREATE INDEX IF NOT EXISTS idx_peers ON peers(server, ts);
@@ -710,6 +788,7 @@ class PollResult:
     dns_status: str = "no_container"              # ok | empty | no_log | unreadable | unsupported | no_container
     dns_note: Optional[str] = None
     dns_coverage_sec: Optional[float] = None
+    ports: Optional[list] = None                  # опубликованные порты VPN (None — не удалось прочитать)
 
 
 def collect(srv: ServerCfg, runner_factory: Callable[[ServerCfg], Runner], now: float,
@@ -753,6 +832,7 @@ def collect(srv: ServerCfg, runner_factory: Callable[[ServerCfg], Runner], now: 
         if rc != 0:
             res.error = "docker ps не выполнен (нужны права: группа docker или sudo -n docker)"
         res.containers = parse_docker_ps(ps)
+        ports = parse_published_ports(ps) if rc == 0 else None
         for c in res.containers:
             if c["type"] not in WG_TYPES or not c["up"]:
                 continue
@@ -760,10 +840,16 @@ def collect(srv: ServerCfg, runner_factory: Callable[[ServerCfg], Runner], now: 
             names.update(parse_clients_table(out("clients", c=shlex.quote(c["name"]), t=c["type"])))
             # общий маппинг из конфига имеет приоритет над clientsTable
             names.update(clients_map)
-            for p in parse_wg_dump(out("wg_dump", c=shlex.quote(c["name"])), now, online_sec):
+            dump = out("wg_dump", c=shlex.quote(c["name"]))
+            if ports is not None:   # контейнер в сети хоста: порт известен только из listen-port
+                for lp in parse_wg_listen_ports(dump):
+                    if not any(x["port"] == lp and x["proto"] == "udp" for x in ports):
+                        ports.append({"container": c["name"], "type": c["type"], "port": lp, "proto": "udp"})
+            for p in parse_wg_dump(dump, now, online_sec):
                 p["container"] = c["name"]
                 p["client"] = names.get(p["pubkey"], p["pubkey"][:8] + "…")
                 res.peers.append(p)
+        res.ports = ports
         dns_c = next((c for c in res.containers if c["type"] == "dns" and c["up"]), None)
         if dns_c:
             q = shlex.quote(dns_c["name"])
@@ -932,6 +1018,9 @@ def process(store: Store, cfg: Config, r: PollResult) -> list:
         new["dns_note"] = prev.get("dns_note")
         new["dns_coverage_sec"] = prev.get("dns_coverage_sec")
         new["dns_last"] = prev.get("dns_last")
+
+    # --- порты VPN для проверки блокировок (только то, что уже видно в docker ps / wg dump)
+    new["ports"] = r.ports if (up_now and r.ports is not None) else prev.get("ports")
 
     store.set_state(key, new)
     store.commit()

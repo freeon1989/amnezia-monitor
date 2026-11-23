@@ -40,6 +40,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import org.amnezia.monitor.HomeUi
 import org.amnezia.monitor.data.ServerSummary
+import org.amnezia.monitor.data.blockLabel
 import org.amnezia.monitor.data.fmtAgo
 import org.amnezia.monitor.data.fmtClock
 import org.amnezia.monitor.data.fmtMs
@@ -199,6 +200,17 @@ private fun ServerCard(server: ServerSummary, onClick: () -> Unit, onTrust: () -
                     color = Muted,
                     style = MaterialTheme.typography.bodySmall,
                 )
+            }
+            val blk = blockLabel(server.blockVerdict)
+            if (blk != null) {
+                val color = when (server.blockVerdict) {
+                    "ok" -> Green
+                    "blocked_ru", "down" -> Red
+                    "partial" -> Amber
+                    else -> Muted
+                }
+                val ago = server.blockTs?.let { fmtAgo(System.currentTimeMillis() / 1000.0 - it) }
+                Text(if (ago != null) "$blk · $ago" else blk, color = color, style = MaterialTheme.typography.bodySmall)
             }
             val mm = server.hostKey
             if (mm != null) {

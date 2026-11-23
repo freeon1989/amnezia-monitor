@@ -31,6 +31,7 @@ if not getattr(sys, "frozen", False):
 
 import amnezia_monitor as am   # noqa: E402
 import app_settings            # noqa: E402
+import blockcheck              # noqa: E402
 import app_window              # noqa: E402
 import hostkeys                 # noqa: E402
 import dashboard               # noqa: E402
@@ -371,8 +372,14 @@ def run(args) -> int:
         holder.reload(force=True)
         wake.set()                                   # опрос сразу с новыми настройками
 
+    if demo:                                         # демо: без сетевых проверок
+        import demo_data
+        blocks = blockcheck.BlockChecker(lambda: am.Store(str(db_path)), holder.get,
+                                         checkhost_factory=demo_data.DemoCheckHost, local=demo_data.demo_local_probe)
+    else:
+        blocks = blockcheck.BlockChecker(lambda: am.Store(str(db_path)), holder.get)
     ctx = app_settings.SettingsContext(config_path, secrets.token_urlsafe(32), str(data_dir),
-                                       on_saved=on_saved, on_quit=quit_app)
+                                       on_saved=on_saved, on_quit=quit_app, blocks=blocks)
     httpd = bind_server(lambda port: dashboard.make_server(lambda: am.Store(str(db_path)), holder.get,
                                                            "127.0.0.1", port, demo, ctx), args.port)
     httpd_box["httpd"] = httpd
@@ -382,6 +389,7 @@ def run(args) -> int:
     threading.Thread(target=httpd.serve_forever, name="http", daemon=True).start()
     if not demo:
         threading.Thread(target=monitor_loop, args=(holder, stop, wake), name="monitor", daemon=True).start()
+        threading.Thread(target=blocks.periodic_loop, args=(stop,), name="blockcheck", daemon=True).start()
     log.warning("Amnezia Monitor запущен: %s (данные: %s)", url, data_dir)
     open_url = url + ("#settings" if not holder.get().servers else "")
     if args.exit_after:

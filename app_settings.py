@@ -69,13 +69,25 @@ def public_view(raw: dict) -> dict:
             "name": s.get("name", ""), "host": s.get("host", ""), "port": int(s.get("port", 22)),
             "user": s.get("user", "root"), "key_path": s.get("key_path") or "", "notes": s.get("notes") or "",
             "has_password": _has_password(s), "password_env": s.get("password_env") or "",
+            "block_ports": _ports_text(s.get("block_ports")),
         })
+    bc = raw.get("block_check") or {}
     return {
         "servers": servers,
         "interval": int(raw.get("interval", 60)),
+        "block_check": {"enabled": bool(bc.get("enabled", True)),
+                        "interval_hours": float(bc.get("interval_hours", 6))},
         "telegram": {"chat_id": str(tg.get("chat_id") or ""),
                      "has_token": bool(tg.get("token") or tg.get("token_enc"))},
     }
+
+
+def _ports_text(value) -> str:
+    import amnezia_monitor as am
+    try:
+        return ", ".join(f"{p}/{proto}" for p, proto in am.parse_port_list(value))
+    except ValueError:
+        return str(value or "")
 
 
 def _secret_fields(secret: str, plain_key: str, enc_key: str) -> dict:
@@ -104,7 +116,16 @@ def validate_server(s: dict) -> dict:
     notes = str(s.get("notes") or "").strip()[:200]
     if len(str(s.get("password") or "")) > 256:
         raise SettingsError(f"{name}: слишком длинный пароль")
-    return {"name": name, "host": host, "port": port, "user": user, "key_path": key_path, "notes": notes}
+    import amnezia_monitor as am
+    raw_ports = str(s.get("block_ports") or "").strip()[:300]
+    try:
+        ports = am.parse_port_list(raw_ports)
+    except ValueError as e:
+        raise SettingsError(f"{name}: порты для проверки блокировок — {e}")
+    if len(ports) > 12:
+        raise SettingsError(f"{name}: не больше 12 дополнительных портов для проверки блокировок")
+    return {"name": name, "host": host, "port": port, "user": user, "key_path": key_path, "notes": notes,
+            "block_ports": ", ".join(f"{p}/{proto}" for p, proto in ports)}
 
 
 def apply_update(raw: dict, payload: dict) -> dict:
@@ -129,11 +150,23 @@ def apply_update(raw: dict, payload: dict) -> dict:
             entry["key_path"] = v["key_path"]
         if v["notes"]:
             entry["notes"] = v["notes"]
-        for k in ("docker_cmd", "timeout"):        # расширенные поля, заданные вручную, сохраняем
+        if v["block_ports"]:
+            entry["block_ports"] = v["block_ports"]
+        for k in ("docker_cmd", "timeout", "block_sni"):        # расширенные поля, заданные вручную, сохраняем
             if prev.get(k) is not None:
                 entry[k] = prev[k]
         servers.append(entry)
     new = {k: v for k, v in raw.items() if k not in ("servers", "interval", "telegram")}
+    if "block_check" in payload:
+        bc_in = payload.get("block_check") or {}
+        try:
+            hours = float(bc_in.get("interval_hours", 6))
+        except (TypeError, ValueError):
+            raise SettingsError("Период проверки блокировок должен быть числом часов")
+        if not 1 <= hours <= 168:
+            raise SettingsError("Период проверки блокировок: от 1 до 168 часов")
+        new["block_check"] = {"enabled": bool(bc_in.get("enabled", True)),
+                              "interval_hours": int(hours) if float(hours).is_integer() else hours}
     try:
         interval = int(payload.get("interval", raw.get("interval", 60)))
     except (TypeError, ValueError):
@@ -262,7 +295,7 @@ class SettingsContext:
 
     def __init__(self, config_path, token: str, data_dir: str = "", on_saved=None, on_quit=None,
                  runner_factory=None, tcp=None, app_mode: bool = True, dns_remote_factory=None,
-                 hostkey_fetch=None):
+                 hostkey_fetch=None, blocks=None):
         self.config_path = str(config_path)
         self.token = token
         self.data_dir = data_dir
@@ -273,6 +306,7 @@ class SettingsContext:
         self.app_mode = app_mode
         self.dns_remote_factory = dns_remote_factory
         self.hostkey_fetch = hostkey_fetch
+        self.blocks = blocks          # blockcheck.BlockChecker (режим приложения)
 
     def get(self) -> dict:
         v = public_view(read_raw(self.config_path))
@@ -311,6 +345,16 @@ class SettingsContext:
             raise SettingsError(str(e))
         except OSError:
             raise SettingsError("сервер недоступен — ключ не заменён")
+
+    def block_check(self, payload: dict) -> dict:
+        """«Проверить сейчас»: внешние проверки портов, на сервер не входит. Кулдаун 30 минут."""
+        if self.blocks is None:
+            raise SettingsError("проверка блокировок доступна только в режиме приложения")
+        name = str((payload or {}).get("name") or "").strip()
+        try:
+            return self.blocks.start(name)
+        except ValueError as e:
+            raise SettingsError(str(e))
 
     def dns_log(self, payload: dict) -> dict:
         """Включить / проверить / выключить DNS-журнал на уже сохранённом сервере."""

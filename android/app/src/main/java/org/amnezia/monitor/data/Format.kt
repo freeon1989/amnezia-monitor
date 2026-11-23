@@ -20,6 +20,17 @@ fun fmtPct(v: Double?): String = if (v == null) "—" else "${v.roundToInt()}%"
 
 fun fmtMs(v: Double?): String = if (v == null) "—" else "${v.roundToInt()} мс"
 
+/** Подпись вердикта проверки блокировок с ПК (раздел «Проверка блокировок» в программе для Windows). */
+fun blockLabel(verdict: String?): String? = when (verdict) {
+    null -> null
+    "ok" -> "Блокировки: доступен везде"
+    "blocked_ru" -> "Блокировки: признаки блокировки в РФ"
+    "down" -> "Блокировки: недоступен отовсюду"
+    "partial" -> "Блокировки: частично доступен"
+    "unverifiable" -> "Блокировки: не проверяется извне"
+    else -> "Блокировки: недостаточно данных"
+}
+
 fun fmtAgo(seconds: Double?): String {
     if (seconds == null) return "—"
     val s = seconds.toInt().coerceAtLeast(0)

@@ -100,6 +100,8 @@ object ApiJson {
         rxBps = o.dbl("rx_bps"),
         txBps = o.dbl("tx_bps"),
         error = o.str("error"),
+        blockVerdict = o.obj("block")?.str("verdict"),
+        blockTs = o.obj("block")?.dbl("ts"),
     )
 
     private fun parseCurrent(o: JsonObject) = Current(

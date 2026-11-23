@@ -2,6 +2,7 @@ package org.amnezia.monitor
 
 import org.amnezia.monitor.data.ApiException
 import org.amnezia.monitor.data.ApiJson
+import org.amnezia.monitor.data.blockLabel
 import org.amnezia.monitor.data.cleanToken
 import org.amnezia.monitor.data.fmtBytes
 import org.amnezia.monitor.data.fmtRate
@@ -19,7 +20,8 @@ class ApiParseTest {
         val raw = """
             [
               {"name":"test1","host":"203.0.113.11","status":"up","age":12,"tcp_ms":20,
-               "cpu":15.5,"mem":40,"peers_online":2,"peers_total":5,"rx_bps":1000,"tx_bps":2000,"error":null},
+               "cpu":15.5,"mem":40,"peers_online":2,"peers_total":5,"rx_bps":1000,"tx_bps":2000,"error":null,
+               "block":{"verdict":"blocked_ru","ts":1800000000}},
               {"name":"пусто","host":"203.0.113.14","status":"nodata"}
             ]
         """.trimIndent()
@@ -31,6 +33,11 @@ class ApiParseTest {
         assertEquals("nodata", list[1].status)
         assertNull(list[1].cpu)
         assertNull(list[1].error)
+        assertEquals("blocked_ru", list[0].blockVerdict)
+        assertEquals(1800000000.0, list[0].blockTs!!, 0.01)
+        assertNull(list[1].blockVerdict)
+        assertEquals("Блокировки: признаки блокировки в РФ", blockLabel(list[0].blockVerdict))
+        assertNull(blockLabel(null))
     }
 
     @Test

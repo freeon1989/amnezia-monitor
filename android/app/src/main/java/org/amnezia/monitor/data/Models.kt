@@ -65,6 +65,9 @@ data class ServerSummary(
     val error: String?,
     val localId: String? = null,
     val hostKey: HostKeyMismatch? = null,
+    /** Последняя проверка блокировок на ПК (только чтение): ok, blocked_ru, down, partial, unknown. */
+    val blockVerdict: String? = null,
+    val blockTs: Double? = null,
 )
 
 data class Current(

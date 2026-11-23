@@ -139,6 +139,11 @@ def make_handler(store_factory, cfg, demo=False, settings=None):
                 try:
                     if u.path == "/api/servers":
                         return self._json(api.api_servers(store, cfg_now))
+                    if u.path == "/api/blocks":
+                        name = (q.get("name") or [""])[0]
+                        if name not in api.server_names(store, cfg_now):
+                            return self._json({"error": "unknown server"}, 404)
+                        return self._json(api.api_blocks(store, name))
                     if u.path == "/api/server":
                         name = (q.get("name") or [""])[0]
                         if name not in api.server_names(store, cfg_now):
@@ -155,7 +160,7 @@ def make_handler(store_factory, cfg, demo=False, settings=None):
         def do_POST(self):
             u = urlparse(self.path)
             if u.path not in ("/api/settings", "/api/settings/test", "/api/app/quit", "/api/server/dns-log",
-                              "/api/settings/trust-hostkey"):
+                              "/api/settings/trust-hostkey", "/api/blocks/check"):
                 return self._json({"error": "not found"}, 404)
             if not self._settings_guard():
                 return
@@ -172,6 +177,8 @@ def make_handler(store_factory, cfg, demo=False, settings=None):
                     return self._json(settings.trust_hostkey(payload))
                 if u.path == "/api/server/dns-log":
                     return self._json(settings.dns_log(payload))
+                if u.path == "/api/blocks/check":
+                    return self._json(settings.block_check(payload))
                 if u.path == "/api/app/quit":
                     if not settings.on_quit:
                         return self._json({"error": "not available"}, 404)
