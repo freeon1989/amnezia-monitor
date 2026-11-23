@@ -336,7 +336,7 @@ def run(args) -> int:
         if not config_path.exists():
             app_settings.write_raw(config_path, {"interval": 60, "servers": [
                 dict({"name": s.name, "host": s.host, "port": s.port, "user": s.user,
-                      "notes": "демо-сервер"}, **app_settings._secret_fields(s.password, "password", "password_enc"))
+                      "notes": "демо-сервер", "country": s.country}, **app_settings._secret_fields(s.password, "password", "password_enc"))
                 for s in demo_data.DEMO_SERVERS]})
     else:
         ensure_config(config_path)
@@ -379,7 +379,8 @@ def run(args) -> int:
     else:
         blocks = blockcheck.BlockChecker(lambda: am.Store(str(db_path)), holder.get)
     ctx = app_settings.SettingsContext(config_path, secrets.token_urlsafe(32), str(data_dir),
-                                       on_saved=on_saved, on_quit=quit_app, blocks=blocks)
+                                       on_saved=on_saved, on_quit=quit_app, blocks=blocks,
+                                       on_appearance=lambda: holder.reload(force=True))
     httpd = bind_server(lambda port: dashboard.make_server(lambda: am.Store(str(db_path)), holder.get,
                                                            "127.0.0.1", port, demo, ctx), args.port)
     httpd_box["httpd"] = httpd

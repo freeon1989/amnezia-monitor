@@ -64,6 +64,7 @@ class ServerCfg:
     notes: str = ""
     block_ports: list = field(default_factory=list)   # [(port, "tcp"|"tls"|"udp")] — доп. порты для проверки блокировок
     block_sni: Optional[str] = None                   # SNI для TLS-проверки портов Xray/Reality
+    country: str = ""                                 # код страны для оформления панели ("" = автоматически)
 
     def safe(self) -> str:
         auth = "key" if self.key_path else ("password" if self.password else "agent")
@@ -84,6 +85,8 @@ class Config:
     daily_summary_hour: Optional[int] = None           # час локального времени, напр. 9
     block_check_enabled: bool = True                   # фоновая проверка блокировок
     block_check_hours: float = 6.0                     # период фоновой проверки, часов
+    animations: bool = True                            # анимации панели (appearance.animations)
+    geoip: bool = False                                # страна сервера по IP через ip-api.com (appearance.geoip)
 
 
 _PORT_ITEM_RE = re.compile(r"^(\d{1,5})(?:/(tcp|udp|tls))?$", re.I)
@@ -136,6 +139,11 @@ def _tg_token(tg: dict) -> Optional[str]:
     if tg.get("token"):
         return str(tg["token"])
     return os.environ.get(tg.get("token_env", "TELEGRAM_BOT_TOKEN"))
+
+
+def _country_code(value) -> str:
+    v = str(value or "").strip().lower()
+    return v if re.match(r"^[a-z]{2}$", v) else ""
 
 
 def load_config(path: str, allow_empty: bool = False) -> Config:
@@ -191,6 +199,7 @@ def load_config(path: str, allow_empty: bool = False) -> Config:
             docker_cmd=str(s.get("docker_cmd", "docker")), timeout=int(s.get("timeout", 10)),
             notes=str(s.get("notes") or ""), block_ports=block_ports,
             block_sni=(str(s["block_sni"]).strip() or None) if s.get("block_sni") else None,
+            country=_country_code(s.get("country")),
         ))
     if not servers and not allow_empty:
         raise ConfigError("В конфиге нет ни одного сервера (секция servers)")
@@ -215,6 +224,8 @@ def load_config(path: str, allow_empty: bool = False) -> Config:
         daily_summary_hour=raw.get("daily_summary_hour"),
         block_check_enabled=bool(bc.get("enabled", True)),
         block_check_hours=min(168.0, max(1.0, bc_hours)),
+        animations=bool((raw.get("appearance") or {}).get("animations", True)),
+        geoip=bool((raw.get("appearance") or {}).get("geoip", False)),
     )
 
 # ---------------------------------------------------------------------------

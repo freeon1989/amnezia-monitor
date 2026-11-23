@@ -19,7 +19,7 @@ except Exception as e:  # без значка .exe всё равно собер�
 
 hidden = [
     "amnezia_monitor", "app_main", "app_settings", "app_window", "hostkeys", "secrets_store", "dashboard", "dashboard_api", "dns_setup", "blockcheck",
-    "demo_data", "yaml", "requests", "pystray._win32", "PIL.Image", "PIL.ImageDraw",
+    "theme", "demo_data", "yaml", "requests", "pystray._win32", "PIL.Image", "PIL.ImageDraw",
     "webview", "webview.platforms.winforms", "webview.platforms.edgechromium",
     "clr", "clr_loader", "pythonnet",
 ] + collect_submodules("paramiko")
@@ -49,6 +49,9 @@ a = Analysis(
     binaries=wv_bins,
     datas=[
         (os.path.join(ROOT, "dashboard.html"), "."),
+        # оформление: героини (webp) и флаги (svg, flag-icons, MIT) — /theme/... в панели
+        (os.path.join(ROOT, "theme_assets", "heroines"), os.path.join("theme_assets", "heroines")),
+        (os.path.join(ROOT, "theme_assets", "flags"), os.path.join("theme_assets", "flags")),
         (os.path.join(ROOT, "deploy", "amnezia-dns-log-cleanup.sh"), "deploy"),
         (os.path.join(ROOT, "deploy", "amnezia-dns-log-cleanup.service"), "deploy"),
         (os.path.join(ROOT, "deploy", "amnezia-dns-log-cleanup.timer"), "deploy"),

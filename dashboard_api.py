@@ -5,7 +5,10 @@ from __future__ import annotations
 import time
 from collections import defaultdict
 
+import os
+
 import blockcheck
+import theme
 from typing import Optional
 
 DNS_NOTES = {
@@ -31,8 +34,28 @@ def _hosts(cfg) -> dict:
     return {s.name: s.host for s in cfg.servers} if cfg is not None else {}
 
 
+def geoip_cache_path(cfg) -> Optional[str]:
+    db = getattr(cfg, "db_path", "") or ""
+    return os.path.join(os.path.dirname(os.path.abspath(db)), "geoip_cache.json") if db else None
+
+
+def server_theme(cfg, name: str) -> dict:
+    """Оформление вкладки: страна (вручную > по названию > GeoIP, если включён), флаг, героиня, цвета."""
+    srv = next((s for s in (cfg.servers if cfg is not None else []) if s.name == name), None)
+    geoip = bool(getattr(cfg, "geoip", False))
+    return theme.theme_for(name, srv.host if srv else "", getattr(srv, "country", "") if srv else "",
+                           geoip=geoip, cache_path=geoip_cache_path(cfg) if geoip else None)
+
+
 def api_servers(store, cfg=None, now: Optional[float] = None) -> list:
     now = now or time.time()
+    out = _api_servers(store, cfg, now)
+    for s in out:
+        s["theme"] = server_theme(cfg, s["name"])
+    return out
+
+
+def _api_servers(store, cfg, now: float) -> list:
     out, hosts = [], _hosts(cfg)
     for n in server_names(store, cfg):
         last = store.db.execute("SELECT * FROM polls WHERE server=? ORDER BY ts DESC LIMIT 1", (n,)).fetchone()

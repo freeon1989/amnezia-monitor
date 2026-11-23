@@ -128,7 +128,7 @@ class DemoEndToEnd(unittest.TestCase):
             allev += am.do_check(cfg, store, n, runner_factory=lambda s, t=tick, nw=now: demo_data.FakeRunner(s, t, nw),
                                  probe=lambda s, sc=sc: (None, None) if s.name in sc["down"] else (10.0, 9.0), now=now)
         text = "\n".join(allev)
-        for needle in ("подключился Дмитрий — ноутбук", "отключился Дмитрий — телефон",
+        for needle in ("подключился Иван — ноутбук", "отключился Иван — телефон",
                        "amnezia-xray остановлен", "высокая загрузка CPU", "test3: сервер недоступен"):
             self.assertIn(needle, text)
         s = am.build_summary(store, cfg, 24, now=NOW + 120)
@@ -213,7 +213,7 @@ class SSHPathTest(unittest.TestCase):
             self.assertEqual(r.nproc, 2)
             self.assertEqual({c["name"] for c in r.containers}, {"amnezia-awg", "amnezia-xray", "amnezia-dns"})
             self.assertEqual(len(r.peers), 4)
-            self.assertIn("Дмитрий — ноутбук", [p["client"] for p in r.peers if p["online"]])
+            self.assertIn("Иван — ноутбук", [p["client"] for p in r.peers if p["online"]])
             self.assertTrue(all(am._ALLOWED_RE.match(c) for c in log))
             # неверный пароль -> аккуратная ошибка без утечки пароля
             bad = am.ServerCfg(name="test1", host="127.0.0.1", port=port, user="monitor", password="WRONG")

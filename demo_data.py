@@ -10,10 +10,10 @@ import tempfile
 import amnezia_monitor as am
 
 DEMO_SERVERS = [
-    am.ServerCfg(name="test1", host="203.0.113.11", password="CHANGE_ME_1"),
-    am.ServerCfg(name="test2", host="203.0.113.12", password="CHANGE_ME_2"),
-    am.ServerCfg(name="test3", host="203.0.113.13", password="CHANGE_ME_3"),
-    am.ServerCfg(name="test4", host="203.0.113.14", password="CHANGE_ME_4"),
+    am.ServerCfg(name="test1", host="203.0.113.11", password="CHANGE_ME_1", country="nl"),
+    am.ServerCfg(name="test2", host="203.0.113.12", password="CHANGE_ME_2", country="se"),
+    am.ServerCfg(name="test3", host="203.0.113.13", password="CHANGE_ME_3", country="kz"),
+    am.ServerCfg(name="test4", host="203.0.113.14", password="CHANGE_ME_4", country="us"),
 ]
 
 
@@ -22,7 +22,7 @@ def fake_key(seed: str) -> str:
 
 
 CLIENTS = {  # server -> [(client name, container)]
-    "test1": [("Дмитрий — телефон", "amnezia-awg"), ("Дмитрий — ноутбук", "amnezia-awg"),
+    "test1": [("Иван — телефон", "amnezia-awg"), ("Иван — ноутбук", "amnezia-awg"),
               ("Мама", "amnezia-awg"), ("Офис", "amnezia-awg")],
     "test2": [("Брат", "amnezia-wireguard"), ("Телевизор", "amnezia-wireguard")],
     "test3": [("Дача — роутер", "amnezia-awg")],
@@ -31,11 +31,11 @@ CLIENTS = {  # server -> [(client name, container)]
 
 # Сценарий по тикам: какие клиенты с «свежим» handshake; состояние серверов/контейнеров; CPU
 SCENARIO = [
-    {"online": {"Дмитрий — телефон", "Мама", "Брат", "Дача — роутер", "Резервный"},
+    {"online": {"Иван — телефон", "Мама", "Брат", "Дача — роутер", "Резервный"},
      "down": set(), "xray_up": True, "cpu_busy": {"test1": 0.25, "test2": 0.10, "test3": 0.05, "test4": 0.03}},
-    {"online": {"Дмитрий — телефон", "Дмитрий — ноутбук", "Мама", "Брат", "Дача — роутер", "Резервный"},
+    {"online": {"Иван — телефон", "Иван — ноутбук", "Мама", "Брат", "Дача — роутер", "Резервный"},
      "down": set(), "xray_up": True, "cpu_busy": {"test1": 0.40, "test2": 0.12, "test3": 0.05, "test4": 0.03}},
-    {"online": {"Дмитрий — ноутбук", "Мама", "Брат", "Телевизор", "Резервный"},
+    {"online": {"Иван — ноутбук", "Мама", "Брат", "Телевизор", "Резервный"},
      "down": {"test3"}, "xray_up": False, "cpu_busy": {"test1": 0.93, "test2": 0.15, "test3": 0.0, "test4": 0.04}},
 ]
 TICK = 60
@@ -141,9 +141,9 @@ import random  # noqa: E402
 
 # имя -> (сервер, контейнер, часы активности, средняя скорость скачивания байт/с, любимые домены)
 DASH_USERS = [
-    ("Дмитрий — телефон", "test1", "amnezia-awg", set(range(7, 24)), 180_000,
+    ("Иван — телефон", "test1", "amnezia-awg", set(range(7, 24)), 180_000,
      ["youtube.com", "googlevideo.com", "telegram.org", "instagram.com", "cdninstagram.com", "x.com", "github.com"]),
-    ("Дмитрий — ноутбук", "test1", "amnezia-awg", set(range(9, 20)), 420_000,
+    ("Иван — ноутбук", "test1", "amnezia-awg", set(range(9, 20)), 420_000,
      ["github.com", "githubusercontent.com", "openai.com", "googleapis.com", "stackoverflow.com", "youtube.com", "microsoft.com"]),
     ("Мама", "test1", "amnezia-awg", set(range(10, 23)), 90_000,
      ["youtube.com", "googlevideo.com", "whatsapp.net", "instagram.com", "facebook.com", "rutube.ru"]),
@@ -158,7 +158,7 @@ DASH_USERS = [
 ]
 
 
-END_ONLINE = {"Дмитрий — ноутбук", "Мама", "Брат", "Телевизор", "Резервный", "Дача — роутер"}
+END_ONLINE = {"Иван — ноутбук", "Мама", "Брат", "Телевизор", "Резервный", "Дача — роутер"}
 
 
 def build_dashboard_demo(store, cfg, now: float, hours: int = 24, step: int = 600, seed: int = 7):
@@ -200,7 +200,7 @@ def build_dashboard_demo(store, cfg, now: float, hours: int = 24, step: int = 60
                 active = hour in active_h and rnd.random() > 0.12
                 if name in END_ONLINE and frac_left < 2400:
                     active = True                      # чтобы в конце демо были онлайн-клиенты
-                if name == "Дмитрий — телефон" and frac_left < 1300:
+                if name == "Иван — телефон" and frac_left < 1300:
                     active = False                     # «отключился» в конце
                 if active:
                     wave = 0.4 + rnd.random() * 1.4

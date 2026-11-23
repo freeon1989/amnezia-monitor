@@ -16,7 +16,7 @@ if [ -n "${WINE_BIN_DIR:-}" ] && [ -x "$WINE_BIN_DIR/wine" ]; then
 fi
 
 # Собирать только из полного дерева репозитория: без app_window.py exe открывал панель в браузере.
-for f in app_main.py app_window.py hostkeys.py dns_setup.py blockcheck.py dashboard.html AmneziaMonitor.spec; do
+for f in app_main.py app_window.py hostkeys.py dns_setup.py blockcheck.py theme.py theme_assets/heroines/heroine_default.webp theme_assets/flags/un.svg dashboard.html AmneziaMonitor.spec; do
   [ -f "$ROOT/$f" ] || { echo "нет $f — это не полное дерево репозитория, сборка остановлена" >&2; exit 1; }
 done
 WINEPREFIX="${WINEPREFIX:-$HOME/.wine-amnezia}"
@@ -28,7 +28,7 @@ CACHE="${CACHE:-$HOME/.cache/amnezia-wine}"
 INSTALLER="$CACHE/python-${PY_VERSION}-amd64.exe"
 URL="https://www.python.org/ftp/python/${PY_VERSION}/python-${PY_VERSION}-amd64.exe"
 OUT_DIR="${OUT_DIR:-$ROOT/dist}"
-VERSION="${VERSION:-v1.3.0}"
+VERSION="${VERSION:-v1.4.0}"
 PKG="AmneziaMonitor-win-x64-${VERSION}"
 ZIP_NAME="${ZIP_NAME:-$PKG.zip}"
 STAGE="$ROOT/build/windows-zip"
@@ -110,7 +110,7 @@ PY
 # В exe должны быть окно (pywebview + WebView2) и проверка ключей хостов.
 if command -v pyi-archive_viewer >/dev/null 2>&1; then
   listing="$(pyi-archive_viewer -l -r "$ROOT/dist/AmneziaMonitor.exe" 2>/dev/null || true)"
-  for m in app_window hostkeys dns_setup blockcheck webview.platforms.edgechromium WebView2Loader; do
+  for m in app_window hostkeys dns_setup blockcheck theme heroine_default.webp webview.platforms.edgechromium WebView2Loader; do
     echo "$listing" | grep -q "$m" || { echo "в exe нет модуля $m" >&2; exit 1; }
   done
   echo "modules check ok"
@@ -123,7 +123,7 @@ rm -rf "$STAGE"
 mkdir -p "$STAGE/$PKG" "$OUT_DIR"
 cp "$ROOT/dist/AmneziaMonitor.exe" "$STAGE/$PKG/"
 cat > "$STAGE/$PKG/START.txt" << 'TXT'
-Amnezia Monitor — Windows x64 (v1.3.0)
+Amnezia Monitor — Windows x64 (v1.4.0)
 
 Запуск: двойной щелчок по AmneziaMonitor.exe.
 Панель открывается в своём окне программы (Microsoft Edge WebView2), а не в браузере.
@@ -136,7 +136,24 @@ WebView2 Runtime уже есть в Windows 11 и в новых Windows 10. Ес
 Настройки и база — в папке %APPDATA%\AmneziaMonitor (servers.yaml,
 amnezia_monitor.db, known_hosts, журнал).
 
-Что нового в v1.3.0
+Что нового в v1.4.0
+- Новое оформление панели «Neon Latex»: тёмный неоново-фиолетовый фон со
+  свечением, стеклянные карточки, глобус и героиня в цветах флага страны
+  сервера справа, падающие лепестки сакуры.
+- Флаг страны на вкладке каждого сервера (с точкой статуса), в заголовке
+  сервера и в списке Настроек. Страна определяется так: поле «Страна» в
+  Настройках → Изменить (вручную) > слова в названии (Frankfurt, Svecia,
+  Вена, Kazahi, Питер, London…) > GeoIP по IP (выключен по умолчанию;
+  Настройки → Оформление; IP уходит на ip-api.com, ответ хранится 30 дней).
+- 14 стран со своей героиней (SE, US, AT, KZ, NL, RU, PL, DE, FR, GB, FI,
+  IN, IL, HK) и ещё ~50 флагов с общей героиней Amnezia.
+- Плавная смена цветов, героини и флага при переключении сервера.
+- Переключатель «Анимации» в шапке и в Настройках (запоминается). Если в
+  Windows выключены эффекты анимации, панель их тоже не показывает.
+- Узкое окно (меньше ~1100 px): колонка с героиней скрывается.
+- Исправлено: время на графике трафика и в «Событиях» показывалось неверно.
+
+Что было в v1.3.0
 - Проверка блокировок на карточке сервера: SSH и порты VPN (Xray/Reality,
   AmneziaWG) проверяются с этого ПК и с узлов check-host.net в России и в
   других странах. Вердикт: «Доступен везде», «Признаки блокировки в РФ»

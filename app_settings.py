@@ -16,6 +16,7 @@ from pathlib import Path
 import yaml
 
 import secrets_store
+import theme
 
 NAME_RE = re.compile(r"^[\w.\- ]{1,40}$", re.UNICODE)
 HOST_RE = re.compile(r"^[A-Za-z0-9.\-:\[\]]{1,253}$")
@@ -69,17 +70,27 @@ def public_view(raw: dict) -> dict:
             "name": s.get("name", ""), "host": s.get("host", ""), "port": int(s.get("port", 22)),
             "user": s.get("user", "root"), "key_path": s.get("key_path") or "", "notes": s.get("notes") or "",
             "has_password": _has_password(s), "password_env": s.get("password_env") or "",
-            "block_ports": _ports_text(s.get("block_ports")),
+            "block_ports": _ports_text(s.get("block_ports")), "country": _country_text(s.get("country")),
         })
     bc = raw.get("block_check") or {}
+    ap = raw.get("appearance") or {}
     return {
         "servers": servers,
+        "appearance": {"animations": bool(ap.get("animations", True)), "geoip": bool(ap.get("geoip", False))},
+        "countries": [{"code": c, "name": n} for c, n in theme.known_countries()],
         "interval": int(raw.get("interval", 60)),
         "block_check": {"enabled": bool(bc.get("enabled", True)),
                         "interval_hours": float(bc.get("interval_hours", 6))},
         "telegram": {"chat_id": str(tg.get("chat_id") or ""),
                      "has_token": bool(tg.get("token") or tg.get("token_enc"))},
     }
+
+
+def _country_text(value) -> str:
+    try:
+        return theme.normalize_country(value)
+    except ValueError:
+        return ""
 
 
 def _ports_text(value) -> str:
@@ -124,8 +135,12 @@ def validate_server(s: dict) -> dict:
         raise SettingsError(f"{name}: порты для проверки блокировок — {e}")
     if len(ports) > 12:
         raise SettingsError(f"{name}: не больше 12 дополнительных портов для проверки блокировок")
+    try:
+        country = theme.normalize_country(s.get("country"))
+    except ValueError as e:
+        raise SettingsError(f"{name}: {e}")
     return {"name": name, "host": host, "port": port, "user": user, "key_path": key_path, "notes": notes,
-            "block_ports": ", ".join(f"{p}/{proto}" for p, proto in ports)}
+            "block_ports": ", ".join(f"{p}/{proto}" for p, proto in ports), "country": country}
 
 
 def apply_update(raw: dict, payload: dict) -> dict:
@@ -152,6 +167,9 @@ def apply_update(raw: dict, payload: dict) -> dict:
             entry["notes"] = v["notes"]
         if v["block_ports"]:
             entry["block_ports"] = v["block_ports"]
+        country = v["country"] if "country" in item else _country_text(prev.get("country"))
+        if country:
+            entry["country"] = country
         for k in ("docker_cmd", "timeout", "block_sni"):        # расширенные поля, заданные вручную, сохраняем
             if prev.get(k) is not None:
                 entry[k] = prev[k]
@@ -295,7 +313,7 @@ class SettingsContext:
 
     def __init__(self, config_path, token: str, data_dir: str = "", on_saved=None, on_quit=None,
                  runner_factory=None, tcp=None, app_mode: bool = True, dns_remote_factory=None,
-                 hostkey_fetch=None, blocks=None):
+                 hostkey_fetch=None, blocks=None, on_appearance=None):
         self.config_path = str(config_path)
         self.token = token
         self.data_dir = data_dir
@@ -307,6 +325,7 @@ class SettingsContext:
         self.dns_remote_factory = dns_remote_factory
         self.hostkey_fetch = hostkey_fetch
         self.blocks = blocks          # blockcheck.BlockChecker (режим приложения)
+        self.on_appearance = on_appearance
 
     def get(self) -> dict:
         v = public_view(read_raw(self.config_path))
@@ -321,6 +340,22 @@ class SettingsContext:
         if self.on_saved:
             self.on_saved()
         return self.get()
+
+    def appearance(self, payload: dict) -> dict:
+        """Оформление панели: анимации и GeoIP. Меняет только раздел appearance в servers.yaml."""
+        raw = read_raw(self.config_path)
+        ap = dict(raw.get("appearance") or {})
+        for k in ("animations", "geoip"):
+            if k in payload:
+                if not isinstance(payload[k], bool):
+                    raise SettingsError(f"appearance.{k}: ожидается true/false")
+                ap[k] = payload[k]
+        raw["appearance"] = ap
+        write_raw(self.config_path, raw)
+        if self.on_appearance:          # перечитать конфиг без внеочередного опроса серверов
+            self.on_appearance()
+        return {"ok": True, "appearance": {"animations": bool(ap.get("animations", True)),
+                                           "geoip": bool(ap.get("geoip", False))}}
 
     def test(self, payload: dict) -> dict:
         srv = server_for_test(read_raw(self.config_path), payload.get("server") or {})

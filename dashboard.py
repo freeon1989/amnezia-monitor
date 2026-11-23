@@ -23,6 +23,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 import dashboard_api as api
+import theme
 
 log = logging.getLogger("amnezia_monitor.dashboard")
 # В собранном .exe (PyInstaller) файлы данных лежат в sys._MEIPASS
@@ -33,9 +34,9 @@ LOCAL_HOSTNAMES = ("127.0.0.1", "localhost", "[::1]")
 
 
 def render_html(snapshot: dict = None, demo: bool = False, settings_token: str = None,
-                first_run: bool = False) -> str:
+                first_run: bool = False, animations: bool = True) -> str:
     html = HTML_PATH.read_text(encoding="utf-8")
-    meta = {"demo": demo}
+    meta = {"demo": demo, "animations": bool(animations)}
     if settings_token:
         meta.update({"settings": True, "token": settings_token, "first_run": first_run})
     inject = f"<script>window.__META__ = {json.dumps(meta)};</script>"
@@ -62,18 +63,20 @@ def make_handler(store_factory, cfg, demo=False, settings=None):
         def log_message(self, fmt, *args):
             log.info("%s %s", self.address_string(), fmt % args)
 
-        def _send(self, code, body: bytes, ctype: str):
+        def _send(self, code, body: bytes, ctype: str, cache: str = "no-store"):
             self.send_response(code)
             self.send_header("Content-Type", ctype)
             self.send_header("Content-Length", str(len(body)))
-            self.send_header("Cache-Control", "no-store")
+            self.send_header("Cache-Control", cache)
             self.send_header("X-Content-Type-Options", "nosniff")
             self.send_header("X-Frame-Options", "DENY")
             self.send_header("Referrer-Policy", "no-referrer")
+            if ctype.startswith("image/svg"):     # SVG-флаги: без скриптов, даже если открыть напрямую
+                self.send_header("Content-Security-Policy", "default-src 'none'; style-src 'unsafe-inline'")
             if ctype.startswith("text/html"):
                 self.send_header("Content-Security-Policy",
                                  "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; "
-                                 "img-src data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; "
+                                 "img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; "
                                  "form-action 'none'")
             self.end_headers()
             self.wfile.write(body)
@@ -123,10 +126,17 @@ def make_handler(store_factory, cfg, demo=False, settings=None):
             u = urlparse(self.path)
             q = parse_qs(u.query)
             try:
+                if u.path.startswith("/theme/"):     # флаги и героини из theme_assets (белый список имён)
+                    found = theme.asset(u.path)
+                    if not found:
+                        return self._json({"error": "not found"}, 404)
+                    return self._send(200, found[0], found[1], cache="max-age=86400")
                 if u.path in ("/", "/index.html"):
-                    first = bool(settings) and not get_cfg().servers
+                    cfg_page = get_cfg()
+                    first = bool(settings) and not cfg_page.servers
                     page = render_html(demo=demo, settings_token=settings.token if settings and
-                                       self._local_request_ok() else None, first_run=first)
+                                       self._local_request_ok() else None, first_run=first,
+                                       animations=getattr(cfg_page, "animations", True))
                     return self._send(200, page.encode("utf-8"), "text/html; charset=utf-8")
                 if u.path == "/api/settings":
                     if self._settings_guard():
@@ -160,7 +170,8 @@ def make_handler(store_factory, cfg, demo=False, settings=None):
         def do_POST(self):
             u = urlparse(self.path)
             if u.path not in ("/api/settings", "/api/settings/test", "/api/app/quit", "/api/server/dns-log",
-                              "/api/settings/trust-hostkey", "/api/blocks/check", "/api/blocks/local"):
+                              "/api/settings/trust-hostkey", "/api/blocks/check", "/api/blocks/local",
+                              "/api/appearance"):
                 return self._json({"error": "not found"}, 404)
             if not self._settings_guard():
                 return
@@ -171,6 +182,8 @@ def make_handler(store_factory, cfg, demo=False, settings=None):
             try:
                 if u.path == "/api/settings":
                     return self._json(settings.save(payload))
+                if u.path == "/api/appearance":
+                    return self._json(settings.appearance(payload))
                 if u.path == "/api/settings/test":
                     return self._json(settings.test(payload))
                 if u.path == "/api/settings/trust-hostkey":

@@ -26,7 +26,7 @@ from typing import Callable, Optional
 
 log = logging.getLogger("amnezia_monitor.blockcheck")
 
-APP_VERSION = "1.3.0"
+APP_VERSION = "1.4.0"
 COOLDOWN_SEC = 30 * 60              # результат кешируется на 30 минут
 RUN_STALE_SEC = 10 * 60             # «идёт проверка» дольше этого — считаем зависшей
 CHECKHOST_BACKOFF_SEC = 15 * 60     # после limit_exceeded check-host не трогаем 15 минут
