@@ -37,6 +37,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
@@ -45,6 +46,12 @@ import androidx.compose.ui.unit.dp
 import org.amnezia.monitor.MonitorViewModel
 import org.amnezia.monitor.data.Endpoint
 import org.amnezia.monitor.data.ImportedServer
+import org.amnezia.monitor.data.CountryDetect
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import org.amnezia.monitor.data.cleanToken
 import org.amnezia.monitor.data.normalizeBaseUrl
 
@@ -59,8 +66,9 @@ private fun ImportFromAmneziaCard(
     onPick: () -> Unit,
     onImportText: () -> Unit,
     onDelete: (ImportedServer) -> Unit,
+    onCountry: (ImportedServer) -> Unit = {},
 ) {
-    Card(colors = CardDefaults.cardColors(containerColor = Card), modifier = Modifier.fillMaxWidth()) {
+    Card(colors = CardDefaults.cardColors(containerColor = Card), border = GlassBorder, modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("Импорт из AmneziaVPN", fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.titleMedium)
             Text(
@@ -85,9 +93,21 @@ private fun ImportFromAmneziaCard(
             OutlinedButton(onClick = onImportText, enabled = paste.isNotBlank()) { Text("Импортировать") }
             if (message != null) Text(message, color = TextMain, style = MaterialTheme.typography.bodySmall)
             servers.forEach { srv ->
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    val t = CountryDetect.themeFor(srv.name, srv.country)
+                    FlagImage(t.country.ifEmpty { null }, 30.dp)
                     Column(Modifier.weight(1f)) {
                         Text(srv.name, fontWeight = FontWeight.SemiBold)
+                        TextButton(onClick = { onCountry(srv) }, contentPadding = androidx.compose.foundation.layout.PaddingValues(0.dp)) {
+                            Text(
+                                "Страна: " + when {
+                                    srv.country.isNotEmpty() -> CountryDetect.countryName(srv.country)
+                                    t.country.isNotEmpty() -> "авто (${t.countryName})"
+                                    else -> "авто"
+                                } + " ▾",
+                                style = MaterialTheme.typography.labelMedium,
+                            )
+                        }
                         Text(
                             "${srv.user}@${srv.host}:${srv.port} · " +
                                 if (srv.hasSshAuth) "пароль SSH сохранён" else "только адрес",
@@ -114,12 +134,13 @@ fun SettingsScreen(vm: MonitorViewModel, onBack: () -> Unit) {
     var testing by remember { mutableStateOf(false) }
     var paste by remember { mutableStateOf("") }
     var dropImport by remember { mutableStateOf<ImportedServer?>(null) }
+    var countryFor by remember { mutableStateOf<ImportedServer?>(null) }
     val pickFile = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) vm.importUri(uri)
     }
 
     Scaffold(
-        containerColor = Bg,
+        containerColor = Color.Transparent,
         topBar = {
             TopAppBar(
                 title = { Text("Настройки", fontWeight = FontWeight.SemiBold) },
@@ -127,7 +148,7 @@ fun SettingsScreen(vm: MonitorViewModel, onBack: () -> Unit) {
                     IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад") }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = Bg,
+                    containerColor = Color.Transparent,
                     titleContentColor = TextMain,
                     navigationIconContentColor = TextMain,
                 ),
@@ -150,6 +171,13 @@ fun SettingsScreen(vm: MonitorViewModel, onBack: () -> Unit) {
                 onPick = { pickFile.launch(arrayOf("*/*")) },
                 onImportText = { vm.importText(paste) },
                 onDelete = { dropImport = it },
+                onCountry = { countryFor = it },
+            )
+            AppearanceCard(
+                animations = settings.animations,
+                geoip = settings.geoip,
+                onAnimations = vm::setAnimations,
+                onGeoip = vm::setGeoip,
             )
             Text("Интервал обновления, пока приложение открыто", color = Muted)
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -166,7 +194,7 @@ fun SettingsScreen(vm: MonitorViewModel, onBack: () -> Unit) {
                 Text("Пока ни одного адреса. Добавьте панель с компьютера, где запущен Amnezia Monitor.", color = Muted)
             }
             settings.endpoints.forEach { ep ->
-                Card(colors = CardDefaults.cardColors(containerColor = Card), modifier = Modifier.fillMaxWidth()) {
+                Card(colors = CardDefaults.cardColors(containerColor = Card), border = GlassBorder, modifier = Modifier.fillMaxWidth()) {
                     Row(
                         Modifier.fillMaxWidth().padding(start = 4.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
                         verticalAlignment = Alignment.CenterVertically,
@@ -234,7 +262,7 @@ fun SettingsScreen(vm: MonitorViewModel, onBack: () -> Unit) {
                 )
             }
 
-            Card(colors = CardDefaults.cardColors(containerColor = Card), modifier = Modifier.fillMaxWidth()) {
+            Card(colors = CardDefaults.cardColors(containerColor = Card), border = GlassBorder, modifier = Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text("Как открыть данные с компьютера", fontWeight = FontWeight.SemiBold)
                     Text(
@@ -250,6 +278,33 @@ fun SettingsScreen(vm: MonitorViewModel, onBack: () -> Unit) {
                 }
             }
         }
+    }
+
+    countryFor?.let { srv ->
+        AlertDialog(
+            onDismissRequest = { countryFor = null },
+            title = { Text("Страна сервера «${srv.name}»") },
+            text = {
+                androidx.compose.foundation.lazy.LazyColumn(Modifier.heightIn(max = 420.dp)) {
+                    item {
+                        TextButton(onClick = { vm.setImportedCountry(srv.id, ""); countryFor = null }) {
+                            Text("Авто — по названию" + if (settings.geoip) " или IP" else "", color = if (srv.country.isEmpty()) LocalAccent.current else TextMain)
+                        }
+                    }
+                    items(CountryDetect.choices()) { (cc, name) ->
+                        Row(
+                            Modifier.fillMaxWidth().clickable { vm.setImportedCountry(srv.id, cc); countryFor = null }.padding(vertical = 6.dp, horizontal = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            FlagImage(cc, 24.dp)
+                            Text("$name (${cc.uppercase()})", color = if (srv.country == cc) LocalAccent.current else TextMain)
+                        }
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { countryFor = null }) { Text("Закрыть") } },
+        )
     }
 
     dropImport?.let { srv ->
@@ -350,6 +405,32 @@ private fun EndpointForm(
                 }) { Text(if (testing) "Проверяю…" else "Проверить") }
                 TextButton(onClick = onDismiss) { Text("Отмена") }
             }
+        }
+    }
+}
+
+@Composable
+private fun AppearanceCard(animations: Boolean, geoip: Boolean, onAnimations: (Boolean) -> Unit, onGeoip: (Boolean) -> Unit) {
+    Card(colors = CardDefaults.cardColors(containerColor = Card), border = GlassBorder, modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Оформление", fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.titleMedium)
+            val colors = SwitchDefaults.colors(checkedTrackColor = LocalAccent.current)
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text("Анимации", modifier = Modifier.weight(1f))
+                Switch(checked = animations, onCheckedChange = onAnimations, colors = colors)
+            }
+            Text(
+                "Фон города страны с медленным движением, свечение, лепестки сакуры, «дыхание» героини, плавная смена сервера. Если в Android включено «Убрать анимацию», они выключаются сами.",
+                color = Muted, style = MaterialTheme.typography.bodySmall,
+            )
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text("Страна по IP (GeoIP)", modifier = Modifier.weight(1f))
+                Switch(checked = geoip, onCheckedChange = onGeoip, colors = colors)
+            }
+            Text(
+                "Только для импортированных серверов без выбранной страны, если её не видно по названию. IP-адрес (без паролей и ключей) уходит на ip-api.com, ответ хранится 30 дней. По умолчанию выключено. Для серверов из панели ПК страну берёт сама панель.",
+                color = Muted, style = MaterialTheme.typography.bodySmall,
+            )
         }
     }
 }

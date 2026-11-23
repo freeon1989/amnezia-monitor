@@ -102,6 +102,8 @@ object ApiJson {
         error = o.str("error"),
         blockVerdict = o.obj("block")?.str("verdict"),
         blockTs = o.obj("block")?.dbl("ts"),
+        panelCountry = o.obj("theme")?.let { CountryDetect.normalize(it.str("country")) },
+        panelCountrySource = o.obj("theme")?.str("source"),
     )
 
     private fun parseCurrent(o: JsonObject) = Current(

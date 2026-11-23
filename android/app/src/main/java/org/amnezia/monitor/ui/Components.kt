@@ -59,7 +59,7 @@ fun Meter(label: String, value: Double?, modifier: Modifier = Modifier) {
         value == null -> Muted
         value >= 90 -> Red
         value >= 75 -> Amber
-        else -> Indigo
+        else -> LocalAccent.current
     }
     Column(modifier, verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {

@@ -52,6 +52,7 @@ a = Analysis(
         # оформление: героини (webp) и флаги (svg, flag-icons, MIT) — /theme/... в панели
         (os.path.join(ROOT, "theme_assets", "heroines"), os.path.join("theme_assets", "heroines")),
         (os.path.join(ROOT, "theme_assets", "flags"), os.path.join("theme_assets", "flags")),
+        (os.path.join(ROOT, "theme_assets", "backgrounds"), os.path.join("theme_assets", "backgrounds")),
         (os.path.join(ROOT, "deploy", "amnezia-dns-log-cleanup.sh"), "deploy"),
         (os.path.join(ROOT, "deploy", "amnezia-dns-log-cleanup.service"), "deploy"),
         (os.path.join(ROOT, "deploy", "amnezia-dns-log-cleanup.timer"), "deploy"),

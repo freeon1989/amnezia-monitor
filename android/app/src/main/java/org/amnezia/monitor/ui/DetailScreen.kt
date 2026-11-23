@@ -32,9 +32,16 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import org.amnezia.monitor.DetailUi
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.ui.draw.clip
+import org.amnezia.monitor.data.CountryDetect
+import org.amnezia.monitor.data.ServerSummary
+import org.amnezia.monitor.data.ThemeInfo
 import org.amnezia.monitor.data.DnsInfo
 import org.amnezia.monitor.data.ServerDetail
 import org.amnezia.monitor.data.UserRow
@@ -56,10 +63,14 @@ fun DetailScreen(
     onBack: () -> Unit,
     onRefresh: () -> Unit,
     onHours: (Int) -> Unit,
+    theme: ThemeInfo = CountryDetect.DEFAULT,
+    servers: List<ServerSummary> = emptyList(),
+    isCurrent: (ServerSummary) -> Boolean = { false },
+    onSwitch: (ServerSummary) -> Unit = {},
 ) {
     val detail = state.detail
     Scaffold(
-        containerColor = Bg,
+        containerColor = Color.Transparent,
         topBar = {
             TopAppBar(
                 title = {
@@ -71,7 +82,7 @@ fun DetailScreen(
                 navigationIcon = {
                     IconButton(onClick = onBack) { Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Назад") }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = Bg, titleContentColor = TextMain, navigationIconContentColor = TextMain),
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent, titleContentColor = TextMain, navigationIconContentColor = TextMain),
             )
         },
     ) { padding ->
@@ -84,6 +95,8 @@ fun DetailScreen(
                 Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(PaddingValues(16.dp)),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
+                HeroStage(theme, LocalAccent.current, LocalAccent2.current)
+                if (servers.size > 1) ServerSwitcher(servers, isCurrent, onSwitch)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     hourChoices.forEach { (h, label) ->
                         FilterChip(selected = state.hours == h, onClick = { onHours(h) }, label = { Text(label) })
@@ -101,10 +114,34 @@ fun DetailScreen(
     }
 }
 
+/** Флаги всех серверов: нажатие — переход на другой сервер (фон, героиня и цвета плавно сменяются). */
+@Composable
+private fun ServerSwitcher(servers: List<ServerSummary>, isCurrent: (ServerSummary) -> Boolean, onSwitch: (ServerSummary) -> Unit) {
+    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        servers.forEach { s ->
+            val on = isCurrent(s)
+            val accent = s.theme?.let { Color(it.accent) } ?: Indigo
+            Row(
+                Modifier
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(if (on) accent.copy(alpha = 0.22f) else Card)
+                    .border(1.dp, if (on) accent else Line, RoundedCornerShape(14.dp))
+                    .clickable(enabled = !on) { onSwitch(s) }
+                    .padding(horizontal = 10.dp, vertical = 7.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                FlagWithDot(s.theme?.country, s.status, 26.dp)
+                Text(s.name, style = MaterialTheme.typography.labelLarge, color = TextMain, maxLines = 1)
+            }
+        }
+    }
+}
+
 @Composable
 private fun DetailBody(d: ServerDetail) {
     val c = d.current
-    Card(colors = CardDefaults.cardColors(containerColor = Card), modifier = Modifier.fillMaxWidth()) {
+    Card(colors = CardDefaults.cardColors(containerColor = Card), border = GlassBorder, modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 StatusChip(c.status)
@@ -149,12 +186,12 @@ private fun DetailBody(d: ServerDetail) {
     }
     val series = d.series
     if (series != null && (series.cpu.isNotEmpty() || series.downBytes.isNotEmpty())) {
-        Card(colors = CardDefaults.cardColors(containerColor = Card), modifier = Modifier.fillMaxWidth()) {
+        Card(colors = CardDefaults.cardColors(containerColor = Card), border = GlassBorder, modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 SectionLabel("CPU и память", "CPU ${fmtPct(c.cpu)}")
-                LineChart(series.cpu, Indigo, yMax = 100f)
+                LineChart(series.cpu, LocalAccent.current, yMax = 100f)
                 LineChart(series.mem, Cyan, yMax = 100f)
-                Text("Индиго — CPU, бирюзовый — память. Пустые промежутки — не было опроса.", color = Muted, style = MaterialTheme.typography.labelSmall)
+                Text("Цвет страны — CPU, бирюзовый — память. Пустые промежутки — не было опроса.", color = Muted, style = MaterialTheme.typography.labelSmall)
                 SectionLabel("Трафик интерфейса", "↓ отдан  ↑ принят")
                 DualBarChart(series.downBytes, series.upBytes)
                 Text(
@@ -175,7 +212,7 @@ private fun DetailBody(d: ServerDetail) {
     DnsBlock(d.dns)
     if (d.events.isNotEmpty()) {
         SectionLabel("События")
-        Card(colors = CardDefaults.cardColors(containerColor = Card), modifier = Modifier.fillMaxWidth()) {
+        Card(colors = CardDefaults.cardColors(containerColor = Card), border = GlassBorder, modifier = Modifier.fillMaxWidth()) {
             Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 d.events.take(25).forEach { ev ->
                     Column {
@@ -190,7 +227,7 @@ private fun DetailBody(d: ServerDetail) {
 
 @Composable
 private fun MiniKpi(title: String, value: String, sub: String, modifier: Modifier = Modifier) {
-    Card(colors = CardDefaults.cardColors(containerColor = Card), modifier = modifier) {
+    Card(colors = CardDefaults.cardColors(containerColor = Card), border = GlassBorder, modifier = modifier) {
         Column(Modifier.padding(12.dp)) {
             Text(title, color = Muted, style = MaterialTheme.typography.labelMedium)
             Text(value, fontWeight = FontWeight.SemiBold)
@@ -201,7 +238,7 @@ private fun MiniKpi(title: String, value: String, sub: String, modifier: Modifie
 
 @Composable
 private fun UserCard(u: UserRow) {
-    Card(colors = CardDefaults.cardColors(containerColor = Card), modifier = Modifier.fillMaxWidth()) {
+    Card(colors = CardDefaults.cardColors(containerColor = Card), border = GlassBorder, modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
@@ -234,7 +271,7 @@ private fun UserCard(u: UserRow) {
 @Composable
 private fun DnsBlock(dns: DnsInfo) {
     SectionLabel("Сайты по DNS", dns.queries?.let { "$it запросов" })
-    Card(colors = CardDefaults.cardColors(containerColor = Card), modifier = Modifier.fillMaxWidth()) {
+    Card(colors = CardDefaults.cardColors(containerColor = Card), border = GlassBorder, modifier = Modifier.fillMaxWidth()) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             if (dns.status != "ok") {
                 Text(dns.note ?: "DNS-журнал недоступен.", color = Amber, style = MaterialTheme.typography.bodySmall)
@@ -260,7 +297,7 @@ private fun DnsBlock(dns: DnsInfo) {
                             Modifier
                                 .fillMaxWidth((site.count.toFloat() / max).coerceIn(0f, 1f))
                                 .height(8.dp)
-                                .background(Indigo, RoundedCornerShape(6.dp)),
+                                .background(LocalAccent.current, RoundedCornerShape(6.dp)),
                         )
                     }
                 }

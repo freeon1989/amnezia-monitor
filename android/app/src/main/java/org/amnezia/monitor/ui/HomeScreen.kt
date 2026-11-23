@@ -36,6 +36,7 @@ import androidx.compose.ui.text.font.FontFamily
 import org.amnezia.monitor.data.HostKeyMismatch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import org.amnezia.monitor.HomeUi
@@ -81,12 +82,20 @@ fun HomeScreen(
         }
     }
     Scaffold(
-        containerColor = Bg,
+        containerColor = Color.Transparent,
         topBar = {
             TopAppBar(
                 title = {
                     Column {
-                        Text("Amnezia Monitor", fontWeight = FontWeight.SemiBold)
+                        Text(
+                            androidx.compose.ui.text.buildAnnotatedString {
+                                append("Amnezia ")
+                                pushStyle(androidx.compose.ui.text.SpanStyle(color = LocalAccent.current))
+                                append("Monitor")
+                                pop()
+                            },
+                            fontWeight = FontWeight.SemiBold,
+                        )
                         val sub = when {
                             home.updatedAt != null -> "обновлено ${fmtClock(home.updatedAt)}"
                             home.endpointLabel.isNotBlank() -> home.endpointLabel
@@ -99,7 +108,7 @@ fun HomeScreen(
                     IconButton(onClick = onRefresh) { Icon(Icons.Filled.Refresh, contentDescription = "Обновить") }
                     IconButton(onClick = onSettings) { Icon(Icons.Filled.Settings, contentDescription = "Настройки") }
                 },
-                colors = TopAppBarDefaults.topAppBarColors(containerColor = Bg, titleContentColor = TextMain, actionIconContentColor = TextMain),
+                colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent, titleContentColor = TextMain, actionIconContentColor = TextMain),
             )
         },
     ) { padding ->
@@ -152,7 +161,7 @@ fun HomeScreen(
 @Composable
 private fun WelcomeCard(onSettings: () -> Unit) {
     Card(
-        colors = CardDefaults.cardColors(containerColor = Card),
+        colors = CardDefaults.cardColors(containerColor = Card), border = GlassBorder,
         modifier = Modifier.fillMaxWidth(),
     ) {
         Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -175,14 +184,21 @@ fun ErrorBanner(text: String) {
 
 @Composable
 private fun ServerCard(server: ServerSummary, onClick: () -> Unit, onTrust: () -> Unit) {
+    val theme = server.theme
+    val accent = theme?.let { Color(it.accent) } ?: Indigo
     Card(
         colors = CardDefaults.cardColors(containerColor = Card),
+        border = androidx.compose.foundation.BorderStroke(1.dp, accent.copy(alpha = 0.32f)),
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
     ) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                FlagWithDot(theme?.country, server.status)
                 Column(Modifier.weight(1f)) {
                     Text(server.name, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.titleMedium)
+                    if (!theme?.countryName.isNullOrBlank()) {
+                        Text(theme!!.countryName, color = Color(theme.accent2).let { if (it == Color.White) Muted else it }, style = MaterialTheme.typography.labelSmall)
+                    }
                     val host = server.host ?: "—"
                     val latency = if (server.tcpMs != null) fmtMs(server.tcpMs) else "—"
                     Text("$host · $latency · ${fmtAgo(server.ageSec)}", color = Muted, style = MaterialTheme.typography.bodySmall)

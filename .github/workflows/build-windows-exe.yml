@@ -150,6 +150,7 @@ jobs:
               "theme",
               "theme_assets/heroines/heroine_default.webp",
               "theme_assets/flags/un.svg",
+              "theme_assets/backgrounds/bg_default.webp",
               "edgechromium",
               "webview2loader",
           ]

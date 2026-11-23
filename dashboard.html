@@ -6,7 +6,7 @@
 <title>Amnezia Monitor</title>
 <style>
 :root{
-  --bg:#07051a; --bg2:rgba(14,9,38,.78); --card:rgba(28,18,64,.62); --card2:rgba(255,255,255,.06); --line:rgba(190,160,255,.16);
+  --bg:#07051a; --bg2:rgba(14,9,38,.78); --card:rgba(22,14,52,.72); --card2:rgba(255,255,255,.06); --line:rgba(190,160,255,.16);
   --text:#ece8ff; --muted:#a59dcc; --dim:#6f6898; --track:#2a2150;
   --green:#34d399; --red:#f87171; --amber:#fbbf24; --blue:#60a5fa; --violet:#a78bfa; --cyan:#22d3ee;
   --down:#60a5fa; --up:#c084fc; --radius:18px;
@@ -22,7 +22,13 @@ html,body{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 "Segoe 
 .bg-tint{position:absolute;inset:-10%;background-color:var(--accent-a);transition:background-color 1s ease;
   -webkit-mask-image:radial-gradient(closest-side at 80% 42%,#000,transparent);mask-image:radial-gradient(closest-side at 80% 42%,#000,transparent);
   will-change:opacity;animation:glowPulse 9s ease-in-out infinite}
-.bg-grid{position:absolute;inset:0;opacity:.35;background-image:linear-gradient(rgba(170,130,255,.07) 1px,transparent 1px),linear-gradient(90deg,rgba(170,130,255,.07) 1px,transparent 1px);
+.bg-photo{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:0;transition:opacity 1.4s ease;
+  transform-origin:60% 40%;will-change:transform;animation:kenburns 50s ease-in-out infinite alternate}
+.bg-photo.on{opacity:1}
+@keyframes kenburns{from{transform:scale(1.04) translate(0,0)}to{transform:scale(1.14) translate(-2.5%,-1.5%)}}
+.bg-shade{position:absolute;inset:0;background:linear-gradient(90deg,rgba(7,5,26,.74) 0%,rgba(7,5,26,.52) 45%,rgba(7,5,26,.18) 78%,rgba(7,5,26,.28) 100%),
+  linear-gradient(180deg,rgba(7,5,26,.2),rgba(7,5,26,0) 35%,rgba(7,5,26,.7))}
+.bg-grid{position:absolute;inset:0;opacity:.22;background-image:linear-gradient(rgba(170,130,255,.07) 1px,transparent 1px),linear-gradient(90deg,rgba(170,130,255,.07) 1px,transparent 1px);
   background-size:44px 44px;-webkit-mask-image:linear-gradient(180deg,transparent,#000 30%,#000 70%,transparent);mask-image:linear-gradient(180deg,transparent,#000 30%,#000 70%,transparent)}
 .petals{position:fixed;inset:0;pointer-events:none;z-index:1;overflow:hidden}
 .petals i{position:absolute;top:-30px;left:var(--x);width:14px;height:11px;border-radius:12px 0 12px 0;will-change:transform;
@@ -37,7 +43,7 @@ html,body{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 "Segoe 
 .app{position:relative;z-index:2;display:grid;grid-template-columns:minmax(0,1fr) var(--stage-w);gap:20px;max-width:1720px;margin:0 auto;padding:20px 22px 40px}
 .wrap{min-width:0}
 .stage{position:sticky;top:16px;height:calc(100vh - 32px);min-height:520px;border-radius:24px;overflow:hidden;border:1px solid var(--line);
-  background:linear-gradient(180deg,rgba(255,255,255,.04),rgba(255,255,255,.01));box-shadow:0 10px 40px rgba(0,0,0,.35);transition:border-color 1s,box-shadow 1s}
+  background:linear-gradient(180deg,rgba(255,255,255,.03),rgba(7,5,26,.25));box-shadow:0 10px 40px rgba(0,0,0,.35);transition:border-color 1s,box-shadow 1s}
 .stage:hover{border-color:var(--accent-b);box-shadow:0 0 0 1px var(--accent-a),0 10px 50px var(--accent-a)}
 .globe{position:absolute;left:50%;top:40%;width:min(86%,340px);aspect-ratio:1;translate:-50% -50%;border-radius:50%;
   background-color:var(--accent-b);transition:background-color 1s,box-shadow 1s;
@@ -201,7 +207,8 @@ html.noanim .petals{display:none}
 <!--STATIC_DATA-->
 </head>
 <body>
-<div class="bgfx" aria-hidden="true"><div class="bg-base"></div><div class="bg-grid"></div><div class="bg-tint"></div></div>
+<div class="bgfx" aria-hidden="true"><div class="bg-base"></div><img class="bg-photo" id="bgA" alt=""><img class="bg-photo" id="bgB" alt="">
+  <div class="bg-shade"></div><div class="bg-grid"></div><div class="bg-tint"></div></div>
 <div class="petals" id="petals" aria-hidden="true"></div>
 <div class="app">
 <div class="wrap">
@@ -263,9 +270,9 @@ const lvl = (v, w, b) => v==null? "" : v>=b? "bad" : v>=w? "warn" : "ok";
 
 /* ---------------------------------------------------------------- Оформление: страна, флаг, героиня */
 const DEFAULT_THEME = {key:"default", country:"", country_name:"", source:"none", flag:null,
-  heroine:"/theme/heroines/heroine_default.webp", accent:"#a855f7", accent2:"#22d3ee", glow:"rgba(168,85,247,.55)"};
+  heroine:"/theme/heroines/heroine_default.webp", background:"/theme/backgrounds/bg_default.webp", accent:"#a855f7", accent2:"#22d3ee", glow:"rgba(168,85,247,.55)"};
 const SRC_TEXT = {manual:"выбрана вручную", name:"по названию", geoip:"по IP (GeoIP)"};
-let curTheme = null, heroTurn = 0, flagTimer = null;
+let curTheme = null, heroTurn = 0, bgTurn = 0, flagTimer = null;
 function rgba(hex, a){ const m=/^#?([0-9a-f]{6})$/i.exec(hex||""); if(!m) return `rgba(168,85,247,${a})`;
   const n=parseInt(m[1],16); return `rgba(${n>>16},${(n>>8)&255},${n&255},${a})`; }
 function themeOf(name){ const s=servers.find(x=>x.name===name); return (s && s.theme) || DEFAULT_THEME; }
@@ -283,6 +290,11 @@ function applyTheme(t){
   const show=()=>{ next.classList.add("on"); prev.classList.remove("on"); heroTurn^=1; };
   if(next.getAttribute("src")===t.heroine && next.complete) show();
   else { next.onload=show; next.onerror=()=>{ prev.classList.remove("on"); }; next.src=t.heroine; }
+  // фон: город страны, тоже crossfade; медленный «Ken Burns» — CSS-анимация (выключается вместе с анимациями)
+  const bgs=[$("bgA"),$("bgB")], bn=bgs[bgTurn^1], bp=bgs[bgTurn], bgUrl=t.background||"/theme/backgrounds/bg_"+t.key+".webp";
+  const showBg=()=>{ bn.classList.add("on"); bp.classList.remove("on"); bgTurn^=1; };
+  if(bn.getAttribute("src")===bgUrl && bn.complete) showBg();
+  else { bn.onload=showBg; bn.onerror=()=>{}; bn.src=bgUrl; }
   const f=$("stFlag"); f.classList.remove("on"); clearTimeout(flagTimer);
   if(t.flag) flagTimer=setTimeout(()=>{ f.onload=()=>f.classList.add("on"); f.src=t.flag; if(f.complete && f.naturalWidth) f.classList.add("on"); }, 350);
   $("capName").textContent = t.country_name || "Amnezia";

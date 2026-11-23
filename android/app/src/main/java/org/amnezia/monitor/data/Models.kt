@@ -24,6 +24,8 @@ data class ImportedServer(
     val user: String = "root",
     val password: String = "",
     val privateKey: String = "",
+    /** Страна для оформления (код ISO, "" — автоматически по названию). */
+    val country: String = "",
 ) {
     val hasSshAuth: Boolean get() = password.isNotBlank() || privateKey.isNotBlank()
 }
@@ -34,6 +36,10 @@ data class AppSettings(
     val activeId: String? = null,
     val intervalSec: Int = 30,
     val imported: List<ImportedServer> = emptyList(),
+    /** Анимации оформления (фон, лепестки, «дыхание» героини). */
+    val animations: Boolean = true,
+    /** Страна сервера по IP через ip-api.com — выключено по умолчанию. */
+    val geoip: Boolean = false,
 ) {
     val active: Endpoint?
         get() = endpoints.firstOrNull { it.id == activeId } ?: endpoints.firstOrNull()
@@ -68,6 +74,11 @@ data class ServerSummary(
     /** Последняя проверка блокировок на ПК (только чтение): ok, blocked_ru, down, partial, unknown. */
     val blockVerdict: String? = null,
     val blockTs: Double? = null,
+    /** Страна из панели ПК (поле theme.country) — null, если панель старая и не прислала. */
+    val panelCountry: String? = null,
+    val panelCountrySource: String? = null,
+    /** Итоговое оформление (заполняет MonitorViewModel). */
+    val theme: ThemeInfo? = null,
 )
 
 data class Current(

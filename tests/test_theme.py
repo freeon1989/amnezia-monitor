@@ -51,13 +51,19 @@ class Detection(unittest.TestCase):
     def test_assets_complete(self):
         for key in theme.THEMES:
             self.assertTrue((theme.ASSETS_DIR / "heroines" / f"heroine_{key}.webp").is_file(), key)
+            bg = theme.ASSETS_DIR / "backgrounds" / f"bg_{key}.webp"
+            self.assertTrue(bg.is_file(), key)
+            self.assertLess(bg.stat().st_size, 260_000, key)
         for cc, _ in theme.known_countries():
             self.assertTrue((theme.ASSETS_DIR / "flags" / f"{cc}.svg").is_file(), cc)
 
     def test_asset_whitelist(self):
         self.assertEqual(theme.asset("/theme/flags/se.svg")[1], "image/svg+xml")
         self.assertEqual(theme.asset("/theme/heroines/heroine_se.webp")[1], "image/webp")
-        for bad in ("/theme/flags/../dashboard.svg", "/theme/flags/se.webp", "/theme/heroines/heroine_se.svg",
+        self.assertEqual(theme.asset("/theme/backgrounds/bg_se.webp")[1], "image/webp")
+        self.assertEqual(theme.theme_for("Svecia")["background"], "/theme/backgrounds/bg_se.webp")
+        self.assertEqual(theme.theme_for("x", manual="es")["background"], "/theme/backgrounds/bg_default.webp")
+        for bad in ("/theme/flags/../dashboard.svg", "/theme/flags/se.webp", "/theme/heroines/heroine_se.svg", "/theme/backgrounds/bg_se.svg",
                     "/theme/other/x.svg", "/theme/flags/SE.svg", "/theme/flags/nope.svg", "/theme/flags/%2e%2e.svg"):
             self.assertIsNone(theme.asset(bad), bad)
 
@@ -207,3 +213,15 @@ class Api(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
+
+
+def test_android_theme_data_in_sync():
+    """android/.../ThemeData.kt и ThemeRes.kt сгенерированы из theme.py и не устарели."""
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parent.parent
+    script = root / "scripts" / "gen_android_theme.py"
+    r = subprocess.run([sys.executable, str(script), "--check"], cwd=root, capture_output=True, text=True)
+    assert r.returncode == 0, r.stdout + r.stderr

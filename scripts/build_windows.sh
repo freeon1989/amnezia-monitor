@@ -16,7 +16,7 @@ if [ -n "${WINE_BIN_DIR:-}" ] && [ -x "$WINE_BIN_DIR/wine" ]; then
 fi
 
 # Собирать только из полного дерева репозитория: без app_window.py exe открывал панель в браузере.
-for f in app_main.py app_window.py hostkeys.py dns_setup.py blockcheck.py theme.py theme_assets/heroines/heroine_default.webp theme_assets/flags/un.svg dashboard.html AmneziaMonitor.spec; do
+for f in app_main.py app_window.py hostkeys.py dns_setup.py blockcheck.py theme.py theme_assets/heroines/heroine_default.webp theme_assets/flags/un.svg theme_assets/backgrounds/bg_default.webp dashboard.html AmneziaMonitor.spec; do
   [ -f "$ROOT/$f" ] || { echo "нет $f — это не полное дерево репозитория, сборка остановлена" >&2; exit 1; }
 done
 WINEPREFIX="${WINEPREFIX:-$HOME/.wine-amnezia}"

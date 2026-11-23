@@ -7,7 +7,8 @@
   3) GeoIP по IP-адресу (ip-api.com) — только если включено в настройках, по умолчанию выключено.
      Сервису уходит только IP-адрес; ответ кэшируется на 30 дней, запрос идёт в фоне и не тормозит панель;
   4) иначе — общая тема «Amnezia».
-Флаги: flag-icons (MIT), лежат в theme_assets/flags. Героини: theme_assets/heroines/*.webp.
+Флаги: flag-icons (MIT), лежат в theme_assets/flags. Героини: theme_assets/heroines/*.webp,
+фоны городов страны: theme_assets/backgrounds/bg_<key>.webp (1920x1080).
 """
 from __future__ import annotations
 
@@ -27,7 +28,7 @@ log = logging.getLogger("amnezia_monitor.theme")
 
 _BASE = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
 ASSETS_DIR = _BASE / "theme_assets"
-ASSET_RE = re.compile(r"^/theme/(heroines|flags)/([a-z0-9_]{1,40})\.(webp|svg)$")
+ASSET_RE = re.compile(r"^/theme/(heroines|flags|backgrounds)/([a-z0-9_]{1,40})\.(webp|svg)$")
 CONTENT_TYPES = {"webp": "image/webp", "svg": "image/svg+xml"}
 
 # Код страны -> (название, акцент, второй акцент, свечение)
@@ -214,6 +215,7 @@ def theme_for(name: str, host: str = "", manual: str = "", geoip: bool = False,
     _, accent, accent2, glow = THEMES[key]
     return {"country": cc, "country_name": country_name(cc) if cc else "", "source": source, "key": key,
             "flag": _flag_url(cc), "heroine": f"/theme/heroines/heroine_{key}.webp",
+            "background": f"/theme/backgrounds/bg_{key}.webp",
             "accent": accent, "accent2": accent2, "glow": glow}
 
 

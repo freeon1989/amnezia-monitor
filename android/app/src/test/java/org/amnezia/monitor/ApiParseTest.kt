@@ -21,7 +21,8 @@ class ApiParseTest {
             [
               {"name":"test1","host":"203.0.113.11","status":"up","age":12,"tcp_ms":20,
                "cpu":15.5,"mem":40,"peers_online":2,"peers_total":5,"rx_bps":1000,"tx_bps":2000,"error":null,
-               "block":{"verdict":"blocked_ru","ts":1800000000}},
+               "block":{"verdict":"blocked_ru","ts":1800000000},
+               "theme":{"country":"nl","source":"manual","key":"nl","flag":"/theme/flags/nl.svg"}},
               {"name":"пусто","host":"203.0.113.14","status":"nodata"}
             ]
         """.trimIndent()
@@ -38,6 +39,10 @@ class ApiParseTest {
         assertNull(list[1].blockVerdict)
         assertEquals("Блокировки: признаки блокировки в РФ", blockLabel(list[0].blockVerdict))
         assertNull(blockLabel(null))
+        // страна из панели ПК (v1.4.0); старая панель без поля theme -> null
+        assertEquals("nl", list[0].panelCountry)
+        assertEquals("manual", list[0].panelCountrySource)
+        assertNull(list[1].panelCountry)
     }
 
     @Test

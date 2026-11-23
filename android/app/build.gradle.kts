@@ -13,8 +13,8 @@ android {
         applicationId = "org.amnezia.monitor"
         minSdk = 26
         targetSdk = 35
-        versionCode = 5
-        versionName = "1.3.0"
+        versionCode = 6
+        versionName = "1.4.0"
     }
 
     buildTypes {
@@ -37,6 +37,17 @@ android {
 
     buildFeatures {
         compose = true
+    }
+
+    testOptions {
+        unitTests {
+            isIncludeAndroidResources = true
+            all { test ->
+                test.maxHeapSize = "3g"
+                test.systemProperty("amnezia.shots", (project.findProperty("shots") ?: "").toString())
+                test.systemProperty("amnezia.shotsDir", rootProject.layout.buildDirectory.dir("shots").get().asFile.path)
+            }
+        }
     }
 
     packaging {
@@ -70,4 +81,6 @@ dependencies {
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.9.0")
+    // Скриншоты экранов без эмулятора: ./gradlew testDebugUnitTest -Pshots=1 (в APK не попадает)
+    testImplementation("org.robolectric:robolectric:4.14.1")
 }

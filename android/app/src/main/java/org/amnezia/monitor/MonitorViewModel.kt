@@ -19,6 +19,9 @@ import kotlinx.coroutines.withContext
 import android.net.Uri
 import org.amnezia.monitor.data.AmneziaImport
 import org.amnezia.monitor.data.AppSettings
+import org.amnezia.monitor.data.CountryDetect
+import org.amnezia.monitor.data.GeoIp
+import org.amnezia.monitor.data.ThemeInfo
 import org.amnezia.monitor.data.Endpoint
 import org.amnezia.monitor.data.HostKeyBook
 import org.amnezia.monitor.data.ImportedServer
@@ -78,11 +81,19 @@ class MonitorViewModel(
     private var hours: Int = 24
     private val localSnaps = mutableMapOf<String, ServerDetail>()
     private val probePrev = mutableMapOf<String, ProbePrev>()
+    private val geo = GeoIp(app)
+    private val geoPending = mutableSetOf<String>()
 
     init {
         viewModelScope.launch {
             store.state.collect { next ->
+                val prev = settings
                 settings = next
+                // Оформление (анимации, GeoIP, страна) не требует нового опроса серверов
+                if (appearanceOnly(prev, next) && prev !== next) {
+                    home = home.copy(servers = withThemes(home.servers, next))
+                    return@collect
+                }
                 val ep = next.active
                 home = home.copy(
                     hasEndpoint = ep != null || next.imported.isNotEmpty(),
@@ -117,6 +128,12 @@ class MonitorViewModel(
         val snap = localSnaps[id]
         if (snap != null) detail = DetailUi(detail = snap, hours = hours)
         viewModelScope.launch { refresh(manual = snap == null) }
+    }
+
+    /** Уход с экрана сервера. При переключении A → B экран A закрывается позже — не сбрасываем B. */
+    fun unwatch(name: String? = null, localId: String? = null) {
+        if (name != null && openServer == name) openServer = null
+        if (localId != null && openLocal == localId) openLocal = null
     }
 
     fun setHours(value: Int) {
@@ -184,6 +201,54 @@ class MonitorViewModel(
             }
             return buf.toString(Charsets.UTF_8.name())
         } ?: throw IllegalArgumentException("Не удалось открыть файл")
+    }
+
+    /** Изменились только поля оформления — опрос не перезапускаем. */
+    private fun appearanceOnly(a: AppSettings, b: AppSettings): Boolean =
+        a.copy(animations = b.animations, geoip = b.geoip, imported = a.imported.map { it.copy(country = "") }) ==
+            b.copy(imported = b.imported.map { it.copy(country = "") })
+
+    fun setAnimations(on: Boolean) = store.update { it.copy(animations = on) }
+
+    fun setGeoip(on: Boolean) = store.update { it.copy(geoip = on) }
+
+    fun setImportedCountry(id: String, country: String) = store.update { cur ->
+        cur.copy(imported = cur.imported.map { if (it.id == id) it.copy(country = CountryDetect.normalize(country)) else it })
+    }
+
+    /** Оформление сервера: панель ПК (её поле theme) > вручную > по названию > GeoIP (если включён). */
+    private fun themeOf(s: ServerSummary, cfg: AppSettings): ThemeInfo {
+        val panel = s.panelCountry
+        if (!panel.isNullOrEmpty()) return CountryDetect.theme(panel, s.panelCountrySource ?: "panel")
+        val manual = s.localId?.let { id -> cfg.imported.firstOrNull { it.id == id }?.country }
+        var geoCc: String? = null
+        val host = s.host
+        if (cfg.geoip && host != null && CountryDetect.isPublicIpv4(host)) {
+            geoCc = geo.cached(host)
+            if (geoCc == null && CountryDetect.normalize(manual).isEmpty() && CountryDetect.byName(s.name) == null) {
+                scheduleGeo(host)
+            }
+        }
+        return CountryDetect.themeFor(s.name, manual, geoCc)
+    }
+
+    private fun withThemes(list: List<ServerSummary>, cfg: AppSettings): List<ServerSummary> =
+        list.map { it.copy(theme = themeOf(it, cfg)) }
+
+    private fun scheduleGeo(host: String) {
+        if (!geoPending.add(host)) return
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) { geo.lookup(host) }
+            geoPending.remove(host)
+            home = home.copy(servers = withThemes(home.servers, store.state.value))
+        }
+    }
+
+    /** Тема для экрана сервера (по имени из панели или id импортированного). */
+    fun themeFor(name: String?, localId: String?): ThemeInfo {
+        val s = home.servers.firstOrNull { if (localId != null) it.localId == localId else it.localId == null && it.name == name }
+        return s?.theme ?: CountryDetect.themeFor(name ?: settings.imported.firstOrNull { it.id == localId }?.name,
+            settings.imported.firstOrNull { it.id == localId }?.country)
     }
 
     fun pull() {
@@ -327,7 +392,7 @@ class MonitorViewModel(
                 if (keysChanged) store.writeHostKeys(keys)
             }
             home = home.copy(
-                servers = dash + localRows,
+                servers = withThemes(dash + localRows, cur),
                 error = dashError,
                 updatedAt = System.currentTimeMillis(),
                 loading = false,
