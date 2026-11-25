@@ -145,4 +145,33 @@ class ScreenshotTest {
             DetailScreen(s.name, DetailUi(detail = d), {}, {}, {}, theme = s.theme!!, servers = servers, isCurrent = { it.name == s.name })
         }
     }
+    @Test
+    @Config(sdk = [34], qualifiers = "w360dp-h720dp-xhdpi")
+    fun detailSmallPhone() {
+        assumeTrue(on())
+        val s = servers[0]
+        val d = ApiJson.parseDetail(detailJson(s.name, s.host!!))
+            .let { it.copy(current = it.current.copy(cpu = 78.0, mem = 91.0, status = "up")) }
+        shoot("android_detail_se_small", false, s.theme!!) {
+            DetailScreen(s.name, DetailUi(detail = d), {}, {}, {}, theme = s.theme!!, servers = servers, isCurrent = { it.name == s.name })
+        }
+    }
+
+    @Test
+    @Config(sdk = [34], qualifiers = "w411dp-h892dp-xxhdpi")
+    fun detailLargePhone() {
+        assumeTrue(on())
+        val s = servers[2] // Kazahi
+        val d = ApiJson.parseDetail(detailJson(s.name, s.host!!))
+        shoot("android_detail_kz_large", false, s.theme!!) {
+            DetailScreen(s.name, DetailUi(detail = d), {}, {}, {}, theme = s.theme!!, servers = servers, isCurrent = { it.name == s.name })
+        }
+        val down = servers[4] // Amsterdam down — may be default theme
+        val t = down.theme!!
+        val dd = ApiJson.parseDetail(detailJson(down.name, down.host!!))
+            .let { it.copy(current = it.current.copy(status = "down", cpu = null, mem = null, error = "SSH timeout")) }
+        shoot("android_detail_down", false, t) {
+            DetailScreen(down.name, DetailUi(detail = dd), {}, {}, {}, theme = t, servers = servers, isCurrent = { it.name == down.name })
+        }
+    }
 }

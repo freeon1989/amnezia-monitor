@@ -7,6 +7,7 @@ import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.foundation.Canvas
@@ -19,7 +20,9 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
@@ -27,23 +30,27 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.State
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -189,44 +196,106 @@ fun FlagWithDot(country: String?, status: String, width: Dp = 34.dp) {
     }
 }
 
-/** Сцена экрана сервера: глобус, героиня страны (crossfade, лёгкое «дыхание»), большой флаг, подпись. */
+/** Цвет дуги нагрузки: акцент флага → янтарный (≥70%) → красный (≥90%); офлайн — серый. */
+fun loadTint(pct: Double?, up: Boolean, accent: Color): Color {
+    if (!up) return Color(0xFF6F6898)
+    val p = pct ?: return accent
+    return when {
+        p >= 90.0 -> Color(0xFFF87171)
+        p >= 70.0 -> Color(0xFFFBBF24)
+        else -> accent
+    }
+}
+
+/**
+ * Сцена экрана сервера: героиня на всю высоту карточки (растёт вместе с экраном),
+ * в круге за ней — мягкий флаг страны и кольца нагрузки (снаружи CPU, внутри память).
+ */
 @Composable
-fun HeroStage(theme: ThemeInfo, accent: Color, accent2: Color, modifier: Modifier = Modifier) {
+fun HeroStage(
+    theme: ThemeInfo,
+    accent: Color,
+    accent2: Color,
+    modifier: Modifier = Modifier,
+    cpu: Double? = null,
+    mem: Double? = null,
+    status: String? = null,
+) {
     val anim = LocalAnimations.current
     val breathe = pingPong(2_750, anim, "breathe")
     val density = LocalDensity.current
+    val screenH = LocalConfiguration.current.screenHeightDp.dp
+    val heroH = (screenH * 0.60f).coerceIn(320.dp, 780.dp)
+    val up = status == "up"
+    val cpuA by animateFloatAsState((if (up) cpu?.toFloat() else null)?.coerceIn(0f, 100f) ?: 0f, tween(if (anim) 800 else 0), label = "cpuRing")
+    val memA by animateFloatAsState((if (up) mem?.toFloat() else null)?.coerceIn(0f, 100f) ?: 0f, tween(if (anim) 800 else 0), label = "memRing")
     val shape = RoundedCornerShape(24.dp)
+    val flagRes = theme.country.takeIf { it.isNotEmpty() }?.let { ThemeRes.FLAGS[it] }
     Box(
-        modifier.fillMaxWidth().height(380.dp).clip(shape).border(1.dp, accent.copy(alpha = 0.35f), shape)
+        modifier.fillMaxWidth().height(heroH).clip(shape).border(1.dp, accent.copy(alpha = 0.35f), shape)
             .background(Brush.verticalGradient(listOf(Color(0x0DFFFFFF), Color(0x5907051A)))),
     ) {
-        Canvas(Modifier.fillMaxSize()) {
-            val r = minOf(size.width * 0.40f, size.height * 0.36f)
-            val c = Offset(size.width / 2f, size.height * 0.42f)
-            drawCircle(Brush.radialGradient(listOf(accent.copy(alpha = 0.55f), accent.copy(alpha = 0.18f), Color(0xCC07051A)), c, r), r, c)
-            val clip = Path().apply { addOval(androidx.compose.ui.geometry.Rect(c, r)) }
-            clipPath(clip) {
-                val step = 13.dp.toPx()
-                var x = c.x - r
-                while (x < c.x + r) { drawLine(Color(0x24EBE1FF), Offset(x, c.y - r), Offset(x, c.y + r), 1f); x += step }
-                var y = c.y - r
-                while (y < c.y + r) { drawLine(Color(0x1AEBE1FF), Offset(c.x - r, y), Offset(c.x + r, y), 1f); y += step }
+        BoxWithConstraints(Modifier.fillMaxSize()) {
+            val side = minOf(maxWidth * 0.92f, maxHeight * 0.78f)
+            Box(Modifier.align(Alignment.Center).size(side).offset(y = -maxHeight * 0.04f)) {
+                Crossfade(targetState = flagRes, animationSpec = tween(if (anim) 700 else 0), label = "gflag") { res ->
+                    if (res != null) {
+                        Image(
+                            painterResource(res), contentDescription = null, contentScale = ContentScale.Crop,
+                            modifier = Modifier.fillMaxSize().clip(CircleShape).alpha(0.40f),
+                        )
+                    } else {
+                        Box(
+                            Modifier.fillMaxSize().clip(CircleShape).background(
+                                Brush.radialGradient(listOf(accent.copy(alpha = 0.50f), accent.copy(alpha = 0.16f), Color(0xCC07051A))),
+                            ),
+                        )
+                    }
+                }
+                Canvas(Modifier.fillMaxSize()) {
+                    val c = Offset(size.width / 2f, size.height / 2f)
+                    val r = size.minDimension / 2f
+                    drawCircle(Brush.radialGradient(listOf(Color(0x14000000), Color(0x8A07051A), Color(0xF207051A)), c, r), r, c)
+                    val clip = Path().apply { addOval(androidx.compose.ui.geometry.Rect(c, r * 0.98f)) }
+                    clipPath(clip) {
+                        val step = 13.dp.toPx()
+                        var x = c.x - r
+                        while (x < c.x + r) { drawLine(Color(0x24EBE1FF), Offset(x, c.y - r), Offset(x, c.y + r), 1f); x += step }
+                        var y = c.y - r
+                        while (y < c.y + r) { drawLine(Color(0x1AEBE1FF), Offset(c.x - r, y), Offset(c.x + r, y), 1f); y += step }
+                    }
+                    val track = if (up) Color(0x33EBE1FF) else Color(0x336F6898)
+                    fun ring(radius: Float, width: Float, pct: Float, color: Color) {
+                        drawCircle(track, radius, c, style = Stroke(width))
+                        if (pct > 0.4f) {
+                            drawArc(
+                                color = color,
+                                startAngle = -90f,
+                                sweepAngle = 360f * (pct / 100f),
+                                useCenter = false,
+                                topLeft = Offset(c.x - radius, c.y - radius),
+                                size = Size(radius * 2, radius * 2),
+                                style = Stroke(width, cap = StrokeCap.Round),
+                            )
+                        }
+                    }
+                    ring(r - 5.dp.toPx(), 5.dp.toPx(), cpuA, loadTint(cpu, up, accent))
+                    ring(r - 13.dp.toPx(), 3.dp.toPx(), memA, loadTint(mem, up, accent))
+                }
             }
-            drawCircle(accent.copy(alpha = 0.45f), r + 7.dp.toPx(), c, style = Stroke(1.dp.toPx()))
         }
         Crossfade(targetState = theme.key, animationSpec = tween(if (anim) 800 else 0), label = "hero", modifier = Modifier.fillMaxSize()) { key ->
-            Box(Modifier.fillMaxSize()) {
-                Image(
-                    painterResource(heroineRes(key)), contentDescription = null, contentScale = ContentScale.Fit,
-                    modifier = Modifier.align(Alignment.BottomCenter).fillMaxHeight(0.97f).graphicsLayer {
-                        val t = breathe.value
-                        translationY = -t * with(density) { 6.dp.toPx() }
-                        scaleX = 1f + 0.01f * t
-                        scaleY = scaleX
-                        transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, 1f)
-                    },
-                )
-            }
+            Image(
+                painterResource(heroineRes(key)), contentDescription = null,
+                contentScale = ContentScale.Fit, alignment = Alignment.BottomCenter,
+                modifier = Modifier.fillMaxSize().graphicsLayer {
+                    val t = breathe.value
+                    translationY = -t * with(density) { 6.dp.toPx() }
+                    scaleX = 1f + 0.01f * t
+                    scaleY = scaleX
+                    transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, 1f)
+                },
+            )
         }
         Crossfade(targetState = theme.country, animationSpec = tween(if (anim) 600 else 0), label = "flag", modifier = Modifier.align(Alignment.TopEnd).padding(14.dp)) { cc ->
             if (cc.isNotEmpty()) FlagImage(cc, 64.dp)
@@ -237,6 +306,14 @@ fun HeroStage(theme: ThemeInfo, accent: Color, accent2: Color, modifier: Modifie
                 .padding(top = 28.dp, bottom = 12.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
+            if (!up) {
+                Text("нет данных", color = Color(0xFF6F6898), letterSpacing = 1.2.sp, fontSize = 11.sp)
+            } else {
+                androidx.compose.foundation.layout.Row {
+                    Text("CPU ${if (cpu == null) "—" else "${cpu.toInt()}%"}", color = loadTint(cpu, true, accent2), letterSpacing = 1.2.sp, fontSize = 11.sp)
+                    Text("  ·  пам. ${if (mem == null) "—" else "${mem.toInt()}%"}", color = loadTint(mem, true, accent2), letterSpacing = 1.2.sp, fontSize = 11.sp)
+                }
+            }
             Text(
                 (theme.countryName.ifBlank { "Amnezia" }).uppercase(), color = Color.White, fontWeight = FontWeight.Bold,
                 letterSpacing = 3.sp, fontSize = 15.sp, textAlign = TextAlign.Center,

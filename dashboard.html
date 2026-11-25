@@ -11,7 +11,7 @@
   --green:#34d399; --red:#f87171; --amber:#fbbf24; --blue:#60a5fa; --violet:#a78bfa; --cyan:#22d3ee;
   --down:#60a5fa; --up:#c084fc; --radius:18px;
   --accent:#a855f7; --accent2:#22d3ee; --glow:rgba(168,85,247,.55); --accent-a:rgba(168,85,247,.22); --accent-b:rgba(168,85,247,.45);
-  --stage-w:clamp(270px,25vw,420px);
+  --stage-w:clamp(280px,28vw,480px);
 }
 *{box-sizing:border-box}
 html,body{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 "Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;min-height:100vh}
@@ -42,25 +42,45 @@ html,body{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 "Segoe 
 /* ---- раскладка: панель + сцена с героиней ---- */
 .app{position:relative;z-index:2;display:grid;grid-template-columns:minmax(0,1fr) var(--stage-w);gap:20px;max-width:1720px;margin:0 auto;padding:20px 22px 40px}
 .wrap{min-width:0}
-.stage{position:sticky;top:16px;height:calc(100vh - 32px);min-height:520px;border-radius:24px;overflow:hidden;border:1px solid var(--line);
+.stage{position:sticky;top:16px;height:calc(100vh - 32px);min-height:360px;border-radius:24px;overflow:hidden;border:1px solid var(--line);container-type:size;
   background:linear-gradient(180deg,rgba(255,255,255,.03),rgba(7,5,26,.25));box-shadow:0 10px 40px rgba(0,0,0,.35);transition:border-color 1s,box-shadow 1s}
 .stage:hover{border-color:var(--accent-b);box-shadow:0 0 0 1px var(--accent-a),0 10px 50px var(--accent-a)}
-.globe{position:absolute;left:50%;top:40%;width:min(86%,340px);aspect-ratio:1;translate:-50% -50%;border-radius:50%;
+/* Круг за героиней: флаг страны (мягко), сетка и кольца нагрузки (CPU снаружи, память внутри) */
+.globe{position:absolute;left:50%;top:48%;width:118%;width:min(118%,92cqh);aspect-ratio:1;translate:-50% -54%;border-radius:50%;
   background-color:var(--accent-b);transition:background-color 1s,box-shadow 1s;
-  background-image:radial-gradient(circle at 34% 28%,rgba(255,255,255,.18),transparent 34%),
-    repeating-linear-gradient(90deg,transparent 0 26px,rgba(235,225,255,.16) 26px 27px),
-    radial-gradient(circle at 50% 50%,transparent 0,rgba(8,5,26,.55) 55%,#07051a 72%);
-  box-shadow:0 0 70px var(--glow),inset 0 0 50px rgba(0,0,0,.75)}
-.globe::before{content:"";position:absolute;inset:0;border-radius:50%;background:repeating-linear-gradient(0deg,transparent 0 26px,rgba(235,225,255,.12) 26px 27px);
-  -webkit-mask-image:radial-gradient(circle,#000 60%,transparent 71%);mask-image:radial-gradient(circle,#000 60%,transparent 71%)}
-.globe::after{content:"";position:absolute;inset:-14px;border-radius:50%;border:1px solid var(--accent-b);transition:border-color 1s;animation:ring 6s ease-in-out infinite}
-.hero{position:absolute;bottom:0;left:50%;height:94%;max-height:640px;max-width:118%;translate:-50% 0;opacity:0;transition:opacity .8s ease;z-index:2;
+  background-image:radial-gradient(circle at 34% 28%,rgba(255,255,255,.16),transparent 34%),
+    radial-gradient(circle at 50% 50%,transparent 0,rgba(8,5,26,.45) 58%,#07051a 74%);
+  box-shadow:0 0 80px var(--glow),inset 0 0 50px rgba(0,0,0,.55)}
+.globe-flag{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;border-radius:50%;opacity:0;transition:opacity .9s ease;z-index:0;
+  -webkit-mask-image:radial-gradient(circle,#000 66%,transparent 72%);mask-image:radial-gradient(circle,#000 66%,transparent 72%)}
+.globe-flag.on{opacity:.42}
+.globe-veil{position:absolute;inset:0;border-radius:50%;z-index:1;pointer-events:none;
+  background:radial-gradient(circle at 34% 28%,rgba(255,255,255,.12),transparent 36%),
+    repeating-linear-gradient(90deg,transparent 0 26px,rgba(235,225,255,.14) 26px 27px),
+    repeating-linear-gradient(0deg,transparent 0 26px,rgba(235,225,255,.10) 26px 27px),
+    radial-gradient(circle at 50% 50%,rgba(8,5,26,.12) 0,rgba(8,5,26,.5) 58%,#07051a 76%)}
+.globe-rings{position:absolute;inset:-9px;width:calc(100% + 18px);height:calc(100% + 18px);z-index:2;pointer-events:none;overflow:visible}
+.globe-rings .trk{fill:none;stroke:rgba(235,225,255,.18);stroke-width:2.4}
+.globe-rings .trk.thin{stroke-width:1.5;stroke:rgba(235,225,255,.12)}
+.globe-rings .arc{fill:none;stroke:var(--accent);stroke-width:2.6;stroke-linecap:round;transition:stroke-dasharray .9s ease,stroke .9s ease}
+.globe-rings .arc.mem{stroke-width:1.6}
+.globe-rings.down .trk,.globe-rings.down .trk.thin{stroke:rgba(111,104,152,.35)}
+.globe-rings.down .arc{stroke:#6f6898}
+html.noanim .globe-rings .arc{transition:none!important}
+/* Героиня занимает всю высоту панели, вписывается без обрезки, растёт и уменьшается вместе с окном */
+.hero{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;object-position:center bottom;opacity:0;transition:opacity .8s ease;z-index:3;
   transform-origin:50% 100%;animation:breathe 5.5s ease-in-out infinite;filter:drop-shadow(0 0 16px var(--accent-b))}
 .hero.on{opacity:1}
-.stage-flag{position:absolute;right:16px;top:16px;width:68px;height:51px;border-radius:9px;object-fit:cover;z-index:3;opacity:0;transition:opacity .7s;
+
+.stage-flag{position:absolute;right:16px;top:16px;width:68px;height:51px;border-radius:9px;object-fit:cover;z-index:4;opacity:0;transition:opacity .7s;
   box-shadow:0 0 0 1px rgba(255,255,255,.25),0 0 22px var(--glow)}
 .stage-flag.on{opacity:1}
-.caption{position:absolute;left:0;right:0;bottom:0;padding:26px 14px 14px;text-align:center;font-size:12px;letter-spacing:2.5px;text-transform:uppercase;z-index:3;
+.stage-load{position:absolute;left:0;right:0;bottom:54px;z-index:4;text-align:center;font-size:11px;letter-spacing:1.1px;color:var(--muted);
+  text-shadow:0 1px 10px #05040f,0 0 8px #05040f;pointer-events:none}
+.stage-load b{color:#fff;font-weight:650}
+.stage-load .hi{color:var(--amber)}.stage-load .hi b{color:var(--amber)}
+.stage-load .hot{color:var(--red)}.stage-load .hot b{color:var(--red)}
+.caption{position:absolute;left:0;right:0;bottom:0;padding:26px 14px 14px;text-align:center;font-size:12px;letter-spacing:2.5px;text-transform:uppercase;z-index:4;
   background:linear-gradient(transparent,rgba(5,4,15,.92));color:var(--accent2);transition:color 1s}
 .caption b{display:block;font-size:15px;letter-spacing:3px;color:#fff;text-shadow:0 0 14px var(--glow)}
 /* ---- шапка ---- */
@@ -200,7 +220,8 @@ html.noanim .petals{display:none}
 /* ---- адаптив ---- */
 @media (max-width:1380px){.row2{grid-template-columns:300px 1fr}.set-grid{grid-template-columns:1fr}}
 @media (max-width:1240px){.row4{grid-template-columns:1fr}}
-@media (max-width:1100px){.app{grid-template-columns:1fr}.stage{display:none}.row4{grid-template-columns:1.25fr 1fr}}
+@media (max-width:1100px){.app{grid-template-columns:1fr}.stage{order:-1;position:sticky;top:0;z-index:5;width:100%;height:min(48vh,520px);min-height:240px;margin-bottom:14px}.row4{grid-template-columns:1.25fr 1fr}}
+@media (max-height:700px){.stage{min-height:280px}.caption{padding:16px 12px 8px;font-size:11px}.stage-load{bottom:40px;font-size:10px}}
 @media (max-width:900px){.blk-sum{grid-template-columns:1fr}.row2,.row4{grid-template-columns:1fr}}
 @media (max-width:640px){.kpis{grid-template-columns:repeat(2,1fr)}.app{padding:14px}}
 </style>
@@ -239,9 +260,19 @@ html.noanim .petals{display:none}
   </div>
 </div>
 <aside class="stage" id="stage" aria-hidden="true">
-  <div class="globe"></div>
+  <div class="globe" id="globe">
+    <img class="globe-flag" id="gfA" alt=""><img class="globe-flag" id="gfB" alt="">
+    <div class="globe-veil"></div>
+    <svg class="globe-rings" id="rings" viewBox="0 0 100 100">
+      <circle class="trk" cx="50" cy="50" r="46"/>
+      <circle class="arc cpu" id="ringCpu" cx="50" cy="50" r="46" pathLength="100" stroke-dasharray="0 100" transform="rotate(-90 50 50)"/>
+      <circle class="trk thin" cx="50" cy="50" r="40"/>
+      <circle class="arc mem" id="ringMem" cx="50" cy="50" r="40" pathLength="100" stroke-dasharray="0 100" transform="rotate(-90 50 50)"/>
+    </svg>
+  </div>
   <img class="stage-flag" id="stFlag" alt="">
   <img class="hero" id="heroA" alt=""><img class="hero" id="heroB" alt="">
+  <div class="stage-load" id="stageLoad"></div>
   <div class="caption"><b id="capName">Amnezia</b><span id="capSub">neon latex</span></div>
 </aside>
 </div>
@@ -272,7 +303,7 @@ const lvl = (v, w, b) => v==null? "" : v>=b? "bad" : v>=w? "warn" : "ok";
 const DEFAULT_THEME = {key:"default", country:"", country_name:"", source:"none", flag:null,
   heroine:"/theme/heroines/heroine_default.webp", background:"/theme/backgrounds/bg_default.webp", accent:"#a855f7", accent2:"#22d3ee", glow:"rgba(168,85,247,.55)"};
 const SRC_TEXT = {manual:"выбрана вручную", name:"по названию", geoip:"по IP (GeoIP)"};
-let curTheme = null, heroTurn = 0, bgTurn = 0, flagTimer = null;
+let curTheme = null, heroTurn = 0, bgTurn = 0, gfTurn = 0, flagTimer = null;
 function rgba(hex, a){ const m=/^#?([0-9a-f]{6})$/i.exec(hex||""); if(!m) return `rgba(168,85,247,${a})`;
   const n=parseInt(m[1],16); return `rgba(${n>>16},${(n>>8)&255},${n&255},${a})`; }
 function themeOf(name){ const s=servers.find(x=>x.name===name); return (s && s.theme) || DEFAULT_THEME; }
@@ -297,8 +328,41 @@ function applyTheme(t){
   else { bn.onload=showBg; bn.onerror=()=>{}; bn.src=bgUrl; }
   const f=$("stFlag"); f.classList.remove("on"); clearTimeout(flagTimer);
   if(t.flag) flagTimer=setTimeout(()=>{ f.onload=()=>f.classList.add("on"); f.src=t.flag; if(f.complete && f.naturalWidth) f.classList.add("on"); }, 350);
+  else { f.removeAttribute("src"); }
+  // флаг в круге за героиней: мягкий, с кроссфейдом; без страны — нейтральный круг
+  const gfs=[$("gfA"),$("gfB")], gn=gfs[gfTurn^1], gp=gfs[gfTurn];
+  if(!t.flag){ gp.classList.remove("on"); gn.classList.remove("on"); }
+  else {
+    const showF=()=>{ gn.classList.add("on"); gp.classList.remove("on"); gfTurn^=1; };
+    if(gn.getAttribute("src")===t.flag && gn.complete) showF();
+    else { gn.onload=showF; gn.onerror=()=>gn.classList.remove("on"); gn.src=t.flag; }
+  }
   $("capName").textContent = t.country_name || "Amnezia";
   $("capSub").textContent = t.country_name ? "сервер · "+t.country.toUpperCase() : "neon latex";
+}
+function loadHue(pct){
+  if(pct==null) return null;
+  if(pct>=90) return "#f87171";
+  if(pct>=70) return "#fbbf24";
+  return (getComputedStyle(document.documentElement).getPropertyValue("--accent")||"").trim() || "#a855f7";
+}
+/** Кольца на круге: внешнее — CPU, внутреннее — память; недоступный сервер — серые дуги. */
+function setStageLoad(c){
+  const up = !!(c && c.status==="up");
+  const cpu = up && c.cpu!=null ? +c.cpu : null;
+  const mem = up && c.mem!=null ? +c.mem : null;
+  const rc=$("ringCpu"), rm=$("ringMem"), lab=$("stageLoad"), g=$("rings"), globe=$("globe");
+  if(!rc) return;
+  g.classList.toggle("down", !up);
+  const set=(el,v)=>{ const p=v==null?0:Math.max(0,Math.min(100,v)); el.style.strokeDasharray=p+" 100";
+    el.style.stroke = !up ? "#6f6898" : (loadHue(v) || "var(--accent)"); };
+  set(rc, cpu); set(rm, mem);
+  const cls=v=>v==null?"":v>=90?"hot":v>=70?"hi":"";
+  const fmt=v=>v==null?"—":Math.round(v)+"%";
+  if(!c){ lab.textContent=""; if(globe) globe.removeAttribute("title"); return; }
+  if(!up){ lab.textContent="нет данных"; if(globe) globe.title=c.error||"сервер недоступен"; return; }
+  lab.innerHTML=`<span class="${cls(cpu)}">CPU <b>${fmt(cpu)}</b></span> · <span class="${cls(mem)}">пам. <b>${fmt(mem)}</b></span>`;
+  if(globe) globe.title=`CPU ${fmt(cpu)} · память ${fmt(mem)}`;
 }
 function setAnim(on, persist){
   document.documentElement.classList.toggle("noanim", !on);
@@ -416,6 +480,7 @@ function renderHead(d){
 function renderDetail(){
   const d=detail, c=d.current||{};
   renderHead(d);
+  setStageLoad(c);
   if(d.status==="nodata"){ $("kpis").innerHTML=kpi("Статус","нет данных","дождитесь первого опроса","warn");
     ["res","traffic","users","dns"].forEach(k=>$(k).innerHTML=`<div class="empty">нет данных</div>`); $("events").innerHTML=""; return; }
   const up=c.status==="up", online=d.users.filter(u=>u.online).length;

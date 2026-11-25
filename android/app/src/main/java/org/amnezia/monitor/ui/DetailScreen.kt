@@ -95,7 +95,10 @@ fun DetailScreen(
                 Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(PaddingValues(16.dp)),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                HeroStage(theme, LocalAccent.current, LocalAccent2.current)
+                HeroStage(
+                    theme, LocalAccent.current, LocalAccent2.current,
+                    cpu = detail?.current?.cpu, mem = detail?.current?.mem, status = detail?.current?.status,
+                )
                 if (servers.size > 1) ServerSwitcher(servers, isCurrent, onSwitch)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     hourChoices.forEach { (h, label) ->

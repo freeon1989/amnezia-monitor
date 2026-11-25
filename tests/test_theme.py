@@ -225,3 +225,14 @@ def test_android_theme_data_in_sync():
     script = root / "scripts" / "gen_android_theme.py"
     r = subprocess.run([sys.executable, str(script), "--check"], cwd=root, capture_output=True, text=True)
     assert r.returncode == 0, r.stdout + r.stderr
+
+
+def test_dashboard_stage_fills_and_has_load_rings():
+    html = (__import__("pathlib").Path(__file__).resolve().parent.parent / "dashboard.html").read_text(encoding="utf-8")
+    assert "max-height:640px" not in html
+    assert "object-fit:contain" in html
+    assert "globe-flag" in html and "id=\"gfA\"" in html
+    assert "id=\"ringCpu\"" in html and "id=\"ringMem\"" in html
+    assert "function setStageLoad" in html
+    assert "display:none" not in html.split("@media (max-width:1100px)")[1].split("@media")[0] or ".stage{order:-1" in html
+    assert ".stage{order:-1" in html
