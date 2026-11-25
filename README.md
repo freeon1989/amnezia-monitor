@@ -12,8 +12,8 @@ Amnezia Monitor показывает состояние ваших сервер�
 
 ## Скачать
 
-[![Скачать для Windows](https://img.shields.io/badge/%D0%A1%D0%BA%D0%B0%D1%87%D0%B0%D1%82%D1%8C%20%D0%B4%D0%BB%D1%8F%20Windows-zip-2ea44f?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/freeon1989/amnezia-monitor/releases/download/v1.4.0/AmneziaMonitor-win-x64-v1.4.0.zip)
-[![Скачать для Android](https://img.shields.io/badge/%D0%A1%D0%BA%D0%B0%D1%87%D0%B0%D1%82%D1%8C%20%D0%B4%D0%BB%D1%8F%20Android-apk-3DDC84?style=for-the-badge&logo=android&logoColor=white)](https://github.com/freeon1989/amnezia-monitor/releases/download/v1.4.1/AmneziaMonitor-android-v1.4.1.apk)
+[![Скачать для Windows](https://img.shields.io/badge/%D0%A1%D0%BA%D0%B0%D1%87%D0%B0%D1%82%D1%8C%20%D0%B4%D0%BB%D1%8F%20Windows-zip-2ea44f?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/freeon1989/amnezia-monitor/releases/download/v1.4.2/AmneziaMonitor-win-x64-v1.4.2.zip)
+[![Скачать для Android](https://img.shields.io/badge/%D0%A1%D0%BA%D0%B0%D1%87%D0%B0%D1%82%D1%8C%20%D0%B4%D0%BB%D1%8F%20Android-apk-3DDC84?style=for-the-badge&logo=android&logoColor=white)](https://github.com/freeon1989/amnezia-monitor/releases/download/v1.4.2/AmneziaMonitor-android-v1.4.2.apk)
 [![Скачать для macOS](https://img.shields.io/badge/%D0%A1%D0%BA%D0%B0%D1%87%D0%B0%D1%82%D1%8C%20%D0%B4%D0%BB%D1%8F%20macOS-dmg-111111?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/freeon1989/amnezia-monitor/releases/download/v1.2.0/AmneziaMonitor-macos-v1.2.0.dmg)
 [![версия](https://img.shields.io/github/v/release/freeon1989/amnezia-monitor?style=for-the-badge&label=%D0%B2%D0%B5%D1%80%D1%81%D0%B8%D1%8F&color=1f6feb)](https://github.com/freeon1989/amnezia-monitor/releases/latest)
 
@@ -21,7 +21,7 @@ Amnezia Monitor показывает состояние ваших сервер�
 
 Готовая программа для 64-битной Windows. Python ставить не нужно.
 
-Прямая ссылка на текущий архив (v1.4.0): [AmneziaMonitor-win-x64-v1.4.0.zip](https://github.com/freeon1989/amnezia-monitor/releases/download/v1.4.0/AmneziaMonitor-win-x64-v1.4.0.zip). Рядом лежит [файл контрольной суммы .sha256](https://github.com/freeon1989/amnezia-monitor/releases/download/v1.4.0/AmneziaMonitor-win-x64-v1.4.0.zip.sha256).
+Прямая ссылка на текущий архив (v1.4.2): [AmneziaMonitor-win-x64-v1.4.2.zip](https://github.com/freeon1989/amnezia-monitor/releases/download/v1.4.2/AmneziaMonitor-win-x64-v1.4.2.zip). Рядом лежит [файл контрольной суммы .sha256](https://github.com/freeon1989/amnezia-monitor/releases/download/v1.4.2/AmneziaMonitor-win-x64-v1.4.2.zip.sha256).
 
 1. Скачайте zip.
 2. Распакуйте архив в любую папку.
@@ -35,7 +35,7 @@ Amnezia Monitor показывает состояние ваших сервер�
 
 ### Android
 
-Файл [AmneziaMonitor-android-v1.4.1.apk](https://github.com/freeon1989/amnezia-monitor/releases/download/v1.4.1/AmneziaMonitor-android-v1.4.1.apk) ([.sha256](https://github.com/freeon1989/amnezia-monitor/releases/download/v1.4.1/AmneziaMonitor-android-v1.4.1.apk.sha256)). В v1.4.1: у серверов, которые телефон опрашивает сам по SSH, появились история, графики, доступность и пинг (история копится, пока приложение открыто). В v1.4.0: оформление «Neon Latex» — фон-город страны сервера, флаги на карточках, героиня и цвета страны на экране сервера, переключение серверов флажками, переключатель «Анимации» (подробнее — [android/README.md](android/README.md)). С v1.2.0: смена ключа SSH сервера показывается со старым и новым отпечатками и кнопкой «Доверять новому ключу», «Сайты» читают журнал Amnezia Unbound. Подпись та же, что у v1.2.0–v1.4.0, — обновление ставится поверх. Если Android не ставит APK поверх старой версии (другая подпись отладочной сборки), удалите старую версию и установите заново. Приложение-спутник: показывает данные панели Windows по локальной сети. На компьютере включите доступ из локальной сети и скопируйте токен в настройках. Это отладочная сборка: разрешите установку из неизвестных источников.
+Файл [AmneziaMonitor-android-v1.4.2.apk](https://github.com/freeon1989/amnezia-monitor/releases/download/v1.4.2/AmneziaMonitor-android-v1.4.2.apk) ([.sha256](https://github.com/freeon1989/amnezia-monitor/releases/download/v1.4.2/AmneziaMonitor-android-v1.4.2.apk.sha256)). В v1.4.2: героиня занимает всю высоту карточки и подстраивается под экран; в круге за ней — мягкий флаг страны и кольца нагрузки (снаружи CPU, внутри память; цвет от акцента к оранжевому ≥70% и красному ≥90%). В v1.4.1: у серверов, которые телефон опрашивает сам по SSH, появились история, графики, доступность и пинг (история копится, пока приложение открыто). В v1.4.0: оформление «Neon Latex» — фон-город страны сервера, флаги на карточках, героиня и цвета страны на экране сервера, переключение серверов флажками, переключатель «Анимации» (подробнее — [android/README.md](android/README.md)). С v1.2.0: смена ключа SSH сервера показывается со старым и новым отпечатками и кнопкой «Доверять новому ключу», «Сайты» читают журнал Amnezia Unbound. Подпись та же, что у v1.2.0–v1.4.1, — обновление ставится поверх. Если Android не ставит APK поверх старой версии (другая подпись отладочной сборки), удалите старую версию и установите заново. Приложение-спутник: показывает данные панели Windows по локальной сети. На компьютере включите доступ из локальной сети и скопируйте токен в настройках. Это отладочная сборка: разрешите установку из неизвестных источников.
 
 ### macOS
 
@@ -43,13 +43,13 @@ Amnezia Monitor показывает состояние ваших сервер�
 
 ## Скриншоты
 
-Снимки v1.4.0 из встроенного демо-режима (`python app_main.py --demo`) и демо-данных Android: серверы test1–test4, адреса из диапазона документации (203.0.113.x, 198.51.100.x), пароли на экран не выводятся. Настоящих IP, имён клиентов и ключей нет.
+Снимки v1.4.2 из встроенного демо-режима (`python app_main.py --demo`) и демо-данных Android: серверы test1–test4, адреса из диапазона документации (203.0.113.x, 198.51.100.x), пароли на экран не выводятся. Настоящих IP, имён клиентов и ключей нет.
 
 ### Обзор
 
-Вкладка сервера: флаг, героиня и фон-город страны, проверка блокировок.
+Вкладка сервера: героиня во всю высоту панели, в круге — флаг страны и кольца нагрузки (CPU и память), фон-город, проверка блокировок.
 
-![Обзор панели: вкладки серверов с флагами, статус, проверка блокировок, героиня Швеции](docs/screenshots/dashboard-overview.png)
+![Обзор панели: героиня во всю высоту, флаг в круге, кольца нагрузки, проверка блокировок](docs/screenshots/dashboard-overview.png)
 
 ### Вся страница сервера
 
@@ -67,8 +67,8 @@ Amnezia Monitor показывает состояние ваших сервер�
 
 <p>
 <img src="docs/screenshots/android-home.png" width="270" alt="Android: список серверов с флагами">
-<img src="docs/screenshots/android-detail-se.png" width="270" alt="Android: экран сервера, Швеция">
-<img src="docs/screenshots/android-detail-kz.png" width="270" alt="Android: экран сервера, Казахстан">
+<img src="docs/screenshots/android-detail-se.png" width="270" alt="Android: экран сервера, Швеция — героиня, флаг в круге, кольца нагрузки">
+<img src="docs/screenshots/android-detail-kz.png" width="270" alt="Android: экран сервера, Казахстан — героиня во всю карточку">
 </p>
 
 ## Возможности
@@ -76,7 +76,7 @@ Amnezia Monitor показывает состояние ваших сервер�
 - Опрос серверов AmneziaVPN по SSH, только чтение: доступность, CPU, память, сеть, контейнеры, клиенты.
 - Панель на этом компьютере: статус, графики за 24 часа, кто онлайн, трафик, события.
 - Сайты по журналу DNS. В приложении на карточке сервера есть кнопки «Включить DNS-журнал», «Проверить» и «Отключить»: они сами настраивают журнал (около 24 часов, потолок 50 МБ). Раздел «Сайты» только читает уже ведущиеся записи и архивы Unbound за сутки.
-- Оформление (v1.4.0): тема «Neon Latex» — флаг страны на вкладке сервера, героиня и цвета в стиле флага, плавная смена при переключении, переключатель «Анимации». Страна: поле «Страна» в настройках сервера > слова в названии > GeoIP (выключен по умолчанию). Фон — город страны с медленным движением и лепестками сакуры. То же оформление есть в Android-приложении (v1.4.0). Флаги — [flag-icons](https://github.com/lipis/flag-icons) (MIT).
+- Оформление (v1.4.2): тема «Neon Latex» — героиня занимает всю высоту панели и растёт вместе с окном (на телефоне так же); в круге за ней мягкий флаг страны и кольца нагрузки (внешняя дуга CPU, внутренняя — память; цвет акцента флага → оранжевый ≥70% → красный ≥90%; у недоступного сервера кольцо серое). В узком окне панель с героиней переезжает наверх. Флаг страны на вкладке сервера, цвета в стиле флага, плавная смена при переключении, переключатель «Анимации». Страна: поле «Страна» в настройках сервера > слова в названии > GeoIP (выключен по умолчанию). Фон — город страны с медленным движением и лепестками сакуры. То же оформление есть в Android-приложении. Флаги — [flag-icons](https://github.com/lipis/flag-icons) (MIT).
 - Проверка блокировок (v1.3.0): SSH и порты VPN проверяются с этого ПК и с узлов check-host.net в России и за рубежом. Панель показывает вердикт, вкладки «Россия» и «Мир», задержки и кнопку «Проверить сейчас». Подробности в разделе «Проверка блокировок» ниже.
 - Уведомления в Telegram или в консоль и сводка раз в день.
 - История в локальной базе SQLite. Настройки VPN программа не меняет.
