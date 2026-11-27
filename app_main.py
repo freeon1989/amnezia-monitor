@@ -35,6 +35,7 @@ import blockcheck              # noqa: E402
 import app_window              # noqa: E402
 import hostkeys                 # noqa: E402
 import dashboard               # noqa: E402
+import updater                 # noqa: E402
 
 log = logging.getLogger("amnezia_monitor.app")
 APP_NAME = "AmneziaMonitor"
@@ -193,6 +194,20 @@ def monitor_loop(holder: ConfigHolder, stop: threading.Event, wake: threading.Ev
         wake.wait(max(1.0, cfg.interval - (time.time() - t0)))
         wake.clear()
     store.db.close()
+
+
+def update_check_loop(updates, stop: threading.Event, first_delay: float = 6.0, every: float = updater.CHECK_INTERVAL):
+    """Проверка новой версии при запуске и раз в несколько часов. Только читает api.github.com, ничего не ставит."""
+    if stop.wait(first_delay):
+        return
+    while True:
+        try:
+            if updates.auto_check_due():
+                updates.check(manual=False)
+        except Exception:
+            log.exception("Проверка обновлений")
+        if stop.wait(every):
+            return
 
 
 # --------------------------------------------------------------------------- трей
@@ -378,9 +393,10 @@ def run(args) -> int:
                                          checkhost_factory=demo_data.DemoCheckHost, local=demo_data.demo_local_probe)
     else:
         blocks = blockcheck.BlockChecker(lambda: am.Store(str(db_path)), holder.get)
+    updates = None if demo else updater.UpdateManager(data_dir, on_exit=quit_app)
     ctx = app_settings.SettingsContext(config_path, secrets.token_urlsafe(32), str(data_dir),
                                        on_saved=on_saved, on_quit=quit_app, blocks=blocks,
-                                       on_appearance=lambda: holder.reload(force=True))
+                                       on_appearance=lambda: holder.reload(force=True), updates=updates)
     httpd = bind_server(lambda port: dashboard.make_server(lambda: am.Store(str(db_path)), holder.get,
                                                            "127.0.0.1", port, demo, ctx), args.port)
     httpd_box["httpd"] = httpd
@@ -391,6 +407,8 @@ def run(args) -> int:
     if not demo:
         threading.Thread(target=monitor_loop, args=(holder, stop, wake), name="monitor", daemon=True).start()
         threading.Thread(target=blocks.periodic_loop, args=(stop,), name="blockcheck", daemon=True).start()
+        threading.Thread(target=update_check_loop, args=(updates, stop), name="update-check", daemon=True).start()
+        updater.clean_old_helpers()
     log.warning("Amnezia Monitor запущен: %s (данные: %s)", url, data_dir)
     open_url = url + ("#settings" if not holder.get().servers else "")
     if args.exit_after:
@@ -441,6 +459,11 @@ def run(args) -> int:
 
 
 def main(argv=None) -> int:
+    argv = list(sys.argv[1:] if argv is None else argv)
+    if argv and argv[0] == "--update-selftest":       # служебный режим: проверка нового exe перед подменой
+        return updater.selftest_main(argv[1] if len(argv) > 1 else "")
+    if "--apply-update" in argv:                       # служебный режим: помощник подмены файлов
+        return updater.helper_main(argv)
     p = argparse.ArgumentParser(prog="AmneziaMonitor", description="Amnezia Monitor: мониторинг + веб-панель")
     p.add_argument("--demo", action="store_true", help="демо-данные, без подключения к серверам")
     add_args(p)

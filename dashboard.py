@@ -53,6 +53,10 @@ def _is_loopback(addr: str) -> bool:
         return False
 
 
+UPDATE_POSTS = ("/api/update/check", "/api/update/download", "/api/update/restart", "/api/update/skip",
+                "/api/update/settings", "/api/update/open", "/api/update/ack")
+
+
 def make_handler(store_factory, cfg, demo=False, settings=None):
     """cfg — Config или функция, возвращающая актуальный Config (перечитывается после сохранения)."""
     get_cfg = cfg if callable(cfg) else (lambda: cfg)
@@ -142,6 +146,12 @@ def make_handler(store_factory, cfg, demo=False, settings=None):
                     if self._settings_guard():
                         self._json(settings.get())
                     return
+                if u.path == "/api/update/status":
+                    if self._settings_guard():
+                        if getattr(settings, "updates", None) is None:
+                            return self._json({"error": "updates disabled"}, 404)
+                        self._json(settings.updates.status())
+                    return
                 if u.path == "/api/health":
                     return self._json({"ok": True, "time": time.time(), "app": "amnezia-monitor"})
                 cfg_now = get_cfg()
@@ -171,7 +181,7 @@ def make_handler(store_factory, cfg, demo=False, settings=None):
             u = urlparse(self.path)
             if u.path not in ("/api/settings", "/api/settings/test", "/api/app/quit", "/api/server/dns-log",
                               "/api/settings/trust-hostkey", "/api/blocks/check", "/api/blocks/local",
-                              "/api/appearance"):
+                              "/api/appearance") and u.path not in UPDATE_POSTS:
                 return self._json({"error": "not found"}, 404)
             if not self._settings_guard():
                 return
@@ -194,6 +204,8 @@ def make_handler(store_factory, cfg, demo=False, settings=None):
                     return self._json(settings.block_check(payload))
                 if u.path == "/api/blocks/local":
                     return self._json(settings.block_local(payload))
+                if u.path in UPDATE_POSTS:
+                    return self._json(settings.update_action(u.path.rsplit("/", 1)[1], payload))
                 if u.path == "/api/app/quit":
                     if not settings.on_quit:
                         return self._json({"error": "not available"}, 404)

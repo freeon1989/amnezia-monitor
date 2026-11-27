@@ -16,7 +16,7 @@ if [ -n "${WINE_BIN_DIR:-}" ] && [ -x "$WINE_BIN_DIR/wine" ]; then
 fi
 
 # Собирать только из полного дерева репозитория: без app_window.py exe открывал панель в браузере.
-for f in app_main.py app_window.py hostkeys.py dns_setup.py blockcheck.py theme.py theme_assets/heroines/heroine_default.webp theme_assets/flags/un.svg theme_assets/backgrounds/bg_default.webp dashboard.html AmneziaMonitor.spec; do
+for f in app_main.py app_window.py updater.py version.py hostkeys.py dns_setup.py blockcheck.py theme.py theme_assets/heroines/heroine_default.webp theme_assets/flags/un.svg theme_assets/backgrounds/bg_default.webp dashboard.html AmneziaMonitor.spec; do
   [ -f "$ROOT/$f" ] || { echo "нет $f — это не полное дерево репозитория, сборка остановлена" >&2; exit 1; }
 done
 WINEPREFIX="${WINEPREFIX:-$HOME/.wine-amnezia}"
@@ -28,9 +28,10 @@ CACHE="${CACHE:-$HOME/.cache/amnezia-wine}"
 INSTALLER="$CACHE/python-${PY_VERSION}-amd64.exe"
 URL="https://www.python.org/ftp/python/${PY_VERSION}/python-${PY_VERSION}-amd64.exe"
 OUT_DIR="${OUT_DIR:-$ROOT/dist}"
-VERSION="${VERSION:-v1.4.2}"
+VERSION="${VERSION:-v$(python3 -c "import sys; sys.path.insert(0, '$ROOT'); from version import __version__ as v; print(v)")}"
 PKG="AmneziaMonitor-win-x64-${VERSION}"
-ZIP_NAME="${ZIP_NAME:-$PKG.zip}"
+# Имя файла релиза стабильное: программа ищет именно его (и .sha256 рядом) при обновлении с GitHub.
+ZIP_NAME="${ZIP_NAME:-AmneziaMonitor-win-x64.zip}"
 STAGE="$ROOT/build/windows-zip"
 
 need() { command -v "$1" >/dev/null 2>&1 || { echo "нет команды: $1" >&2; exit 1; }; }
@@ -110,7 +111,7 @@ PY
 # В exe должны быть окно (pywebview + WebView2) и проверка ключей хостов.
 if command -v pyi-archive_viewer >/dev/null 2>&1; then
   listing="$(pyi-archive_viewer -l -r "$ROOT/dist/AmneziaMonitor.exe" 2>/dev/null || true)"
-  for m in app_window hostkeys dns_setup blockcheck theme heroine_default.webp webview.platforms.edgechromium WebView2Loader; do
+  for m in app_window updater hostkeys dns_setup blockcheck theme heroine_default.webp webview.platforms.edgechromium WebView2Loader; do
     echo "$listing" | grep -q "$m" || { echo "в exe нет модуля $m" >&2; exit 1; }
   done
   echo "modules check ok"
@@ -118,12 +119,29 @@ else
   echo "pyi-archive_viewer нет на Linux — проверка модулей пропущена" >&2
 fi
 
+# Служебная проверка собранного exe: он должен запуститься и назвать свою версию (её же выполняет помощник обновления).
+echo "== --update-selftest =="
+EXPECT_VER="${VERSION#v}"
+ST_OUT="$(mktemp -u).json"
+if timeout 180 xvfb-run -a wine "$ROOT/dist/AmneziaMonitor.exe" --update-selftest "Z:$ST_OUT" >/dev/null 2>&1 && [ -f "$ST_OUT" ]; then
+  python3 - "$ST_OUT" "$EXPECT_VER" << 'PY'
+import json, sys
+d = json.load(open(sys.argv[1]))
+assert d.get("ok") and d.get("version") == sys.argv[2], d
+print("update-selftest ok:", d)
+PY
+else
+  echo "exe не прошёл --update-selftest" >&2
+  exit 1
+fi
+rm -f "$ST_OUT"
+
 echo "== zip =="
 rm -rf "$STAGE"
 mkdir -p "$STAGE/$PKG" "$OUT_DIR"
 cp "$ROOT/dist/AmneziaMonitor.exe" "$STAGE/$PKG/"
-cat > "$STAGE/$PKG/START.txt" << 'TXT'
-Amnezia Monitor — Windows x64 (v1.4.2)
+cat > "$STAGE/$PKG/START.txt" << TXT
+Amnezia Monitor — Windows x64 (v${VERSION#v})
 
 Запуск: двойной щелчок по AmneziaMonitor.exe.
 Панель открывается в своём окне программы (Microsoft Edge WebView2), а не в браузере.
@@ -136,7 +154,19 @@ WebView2 Runtime уже есть в Windows 11 и в новых Windows 10. Ес
 Настройки и база — в папке %APPDATA%\AmneziaMonitor (servers.yaml,
 amnezia_monitor.db, known_hosts, журнал).
 
-Что нового в v1.4.2
+Что нового в v1.5.0
+- Обновление прямо из программы. При запуске (и по кнопке «Проверить обновления»
+  в Настройки → Обновления) программа смотрит на GitHub, нет ли нового релиза,
+  и показывает список изменений. Ничего не скачивается и не ставится без вашего
+  нажатия «Обновить». Файл берётся только с GitHub по HTTPS и принимается, только
+  если его SHA-256 совпал с файлом .sha256 из того же релиза. Затем программа
+  закрывается, помощник заменяет exe (прежний сохраняется как
+  AmneziaMonitor.exe.bak; если новая версия не запустилась, возвращается прежняя)
+  и запускает её снова. Настройки и база в %APPDATA%\AmneziaMonitor не трогаются.
+  Есть переключатель «Проверять при запуске» и «Пропустить эту версию».
+  Папка с программой должна быть доступна для записи (не Program Files).
+
+Что было в v1.4.2
 - Героиня занимает всю высоту правой панели и растёт или уменьшается вместе
   с окном (голова и ноги не обрезаются). В узком окне панель переезжает
   наверх, а не скрывается.
@@ -221,5 +251,6 @@ fi
 ZIP_PATH="$OUT_DIR/$ZIP_NAME"
 rm -f "$ZIP_PATH"
 python3 "$ROOT/scripts/make_windows_zip.py" "$STAGE" "$ZIP_PATH"
-sha256sum "$ZIP_PATH" | tee "$ZIP_PATH.sha256"
+# в .sha256 только имя файла (без пути): так его читает обновление из программы
+( cd "$(dirname "$ZIP_PATH")" && sha256sum "$(basename "$ZIP_PATH")" | tee "$(basename "$ZIP_PATH").sha256" )
 echo "готово: $ZIP_PATH"

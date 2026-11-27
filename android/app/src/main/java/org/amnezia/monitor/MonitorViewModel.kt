@@ -18,6 +18,8 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import android.net.Uri
 import org.amnezia.monitor.data.AmneziaImport
+import org.amnezia.monitor.data.AppUpdate
+import org.amnezia.monitor.data.AppUpdater
 import org.amnezia.monitor.data.AppSettings
 import org.amnezia.monitor.data.CountryDetect
 import org.amnezia.monitor.data.GeoIp
@@ -55,6 +57,23 @@ data class DetailUi(
     val hours: Int = 24,
 )
 
+/** Состояние обновления с GitHub. Установка — только после нажатия «Обновить». */
+data class UpdateUi(
+    val current: String = "",
+    val autoCheck: Boolean = true,
+    val checking: Boolean = false,
+    val release: AppUpdate.Release? = null,
+    val available: Boolean = false,
+    val skipped: Boolean = false,
+    val downloading: Boolean = false,
+    val progress: Float? = null,
+    val error: String? = null,
+    val message: String? = null,
+    val upToDate: Boolean = false,
+    /** Показывать окно «Доступна новая версия» (при запуске, пока не закрыли). */
+    val prompt: Boolean = false,
+)
+
 class MonitorViewModel(
     app: Application,
     private val store: SettingsStore,
@@ -70,6 +89,17 @@ class MonitorViewModel(
 
     var importMessage by mutableStateOf<String?>(null)
         private set
+
+    private val updPrefs = app.getSharedPreferences("update_state", android.content.Context.MODE_PRIVATE)
+    private val updater = AppUpdater(File(app.cacheDir, "updates"), userAgent = "AmneziaMonitor-Android/" + currentVersion(app))
+    var update by mutableStateOf(
+        UpdateUi(current = currentVersion(app), autoCheck = updPrefs.getBoolean("auto", true)),
+    )
+        private set
+    /** Проверенный APK, готовый к передаче системному установщику. */
+    var pendingInstall by mutableStateOf<File?>(null)
+        private set
+    private var readyApk: File? = null
 
     /** Итог «Доверять новому ключу» для баннера на главном экране. */
     var hostKeyMessage by mutableStateOf<String?>(null)
@@ -481,7 +511,86 @@ class MonitorViewModel(
         }
     }
 
+    // ---- обновление приложения (GitHub Releases)
+    fun startUpdateCheckOnLaunch() {
+        if (!update.autoCheck) return
+        if (System.currentTimeMillis() - updPrefs.getLong("last", 0) < 6 * 3600_000L) return
+        checkUpdate(manual = false)
+    }
+
+    fun checkUpdate(manual: Boolean) {
+        if (update.checking || update.downloading) return
+        update = update.copy(checking = true, error = null, message = null, upToDate = false)
+        viewModelScope.launch {
+            try {
+                val rel = updater.latest()
+                updPrefs.edit().putLong("last", System.currentTimeMillis()).apply()
+                val newer = AppUpdate.isNewer(rel.version, update.current)
+                val skipped = newer && updPrefs.getString("skipped", "") == rel.version
+                update = update.copy(
+                    checking = false, release = rel, available = newer, skipped = skipped,
+                    upToDate = !newer, prompt = newer && !skipped,
+                )
+            } catch (e: AppUpdate.UpdateException) {
+                update = update.copy(checking = false, error = if (manual) e.message else null)
+            } catch (e: Exception) {
+                update = update.copy(checking = false, error = if (manual) "Не удалось проверить обновления" else null)
+            }
+        }
+    }
+
+    /** Нажатие «Обновить»: скачать, сверить SHA-256 и передать системному установщику. */
+    fun installUpdate() {
+        val rel = update.release ?: return
+        if (update.downloading || !update.available) return
+        readyApk?.takeIf { it.isFile }?.let { pendingInstall = it; return }
+        update = update.copy(downloading = true, progress = 0f, error = null, message = null, prompt = false)
+        viewModelScope.launch {
+            try {
+                val f = updater.download(rel) { done, total ->
+                    update = update.copy(progress = if (total > 0) (done.toFloat() / total).coerceIn(0f, 1f) else null)
+                }
+                readyApk = f
+                update = update.copy(downloading = false, progress = null, message = "Файл скачан, SHA-256 совпала. Подтвердите установку в окне Android.")
+                pendingInstall = f
+            } catch (e: AppUpdate.UpdateException) {
+                update = update.copy(downloading = false, progress = null, error = e.message)
+            } catch (e: Exception) {
+                update = update.copy(downloading = false, progress = null, error = "Не удалось скачать обновление")
+            }
+        }
+    }
+
+    fun installHandled(message: String? = null) {
+        pendingInstall = null
+        if (message != null) update = update.copy(message = message)
+    }
+
+    fun dismissUpdatePrompt() { update = update.copy(prompt = false) }
+
+    fun skipUpdate() {
+        val rel = update.release ?: return
+        updPrefs.edit().putString("skipped", rel.version).apply()
+        update = update.copy(skipped = true, prompt = false)
+    }
+
+    fun unskipUpdate() {
+        updPrefs.edit().remove("skipped").apply()
+        update = update.copy(skipped = false)
+    }
+
+    fun setAutoUpdateCheck(on: Boolean) {
+        updPrefs.edit().putBoolean("auto", on).apply()
+        update = update.copy(autoCheck = on)
+    }
+
     companion object {
+        fun currentVersion(app: Application): String = try {
+            app.packageManager.getPackageInfo(app.packageName, 0).versionName ?: "0.0.0"
+        } catch (_: Exception) {
+            "0.0.0"
+        }
+
         fun factory(app: Application): ViewModelProvider.Factory = object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
             override fun <T : ViewModel> create(modelClass: Class<T>): T {

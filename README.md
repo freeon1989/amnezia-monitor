@@ -12,8 +12,8 @@ Amnezia Monitor показывает состояние ваших сервер�
 
 ## Скачать
 
-[![Скачать для Windows](https://img.shields.io/badge/%D0%A1%D0%BA%D0%B0%D1%87%D0%B0%D1%82%D1%8C%20%D0%B4%D0%BB%D1%8F%20Windows-zip-2ea44f?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/freeon1989/amnezia-monitor/releases/download/v1.4.2/AmneziaMonitor-win-x64-v1.4.2.zip)
-[![Скачать для Android](https://img.shields.io/badge/%D0%A1%D0%BA%D0%B0%D1%87%D0%B0%D1%82%D1%8C%20%D0%B4%D0%BB%D1%8F%20Android-apk-3DDC84?style=for-the-badge&logo=android&logoColor=white)](https://github.com/freeon1989/amnezia-monitor/releases/download/v1.4.2/AmneziaMonitor-android-v1.4.2.apk)
+[![Скачать для Windows](https://img.shields.io/badge/%D0%A1%D0%BA%D0%B0%D1%87%D0%B0%D1%82%D1%8C%20%D0%B4%D0%BB%D1%8F%20Windows-zip-2ea44f?style=for-the-badge&logo=windows&logoColor=white)](https://github.com/freeon1989/amnezia-monitor/releases/latest/download/AmneziaMonitor-win-x64.zip)
+[![Скачать для Android](https://img.shields.io/badge/%D0%A1%D0%BA%D0%B0%D1%87%D0%B0%D1%82%D1%8C%20%D0%B4%D0%BB%D1%8F%20Android-apk-3DDC84?style=for-the-badge&logo=android&logoColor=white)](https://github.com/freeon1989/amnezia-monitor/releases/latest/download/AmneziaMonitor-android.apk)
 [![Скачать для macOS](https://img.shields.io/badge/%D0%A1%D0%BA%D0%B0%D1%87%D0%B0%D1%82%D1%8C%20%D0%B4%D0%BB%D1%8F%20macOS-dmg-111111?style=for-the-badge&logo=apple&logoColor=white)](https://github.com/freeon1989/amnezia-monitor/releases/download/v1.2.0/AmneziaMonitor-macos-v1.2.0.dmg)
 [![версия](https://img.shields.io/github/v/release/freeon1989/amnezia-monitor?style=for-the-badge&label=%D0%B2%D0%B5%D1%80%D1%81%D0%B8%D1%8F&color=1f6feb)](https://github.com/freeon1989/amnezia-monitor/releases/latest)
 
@@ -21,7 +21,7 @@ Amnezia Monitor показывает состояние ваших сервер�
 
 Готовая программа для 64-битной Windows. Python ставить не нужно.
 
-Прямая ссылка на текущий архив (v1.4.2): [AmneziaMonitor-win-x64-v1.4.2.zip](https://github.com/freeon1989/amnezia-monitor/releases/download/v1.4.2/AmneziaMonitor-win-x64-v1.4.2.zip). Рядом лежит [файл контрольной суммы .sha256](https://github.com/freeon1989/amnezia-monitor/releases/download/v1.4.2/AmneziaMonitor-win-x64-v1.4.2.zip.sha256).
+Постоянная ссылка на последнюю версию: [AmneziaMonitor-win-x64.zip](https://github.com/freeon1989/amnezia-monitor/releases/latest/download/AmneziaMonitor-win-x64.zip). Рядом лежит [файл контрольной суммы .sha256](https://github.com/freeon1989/amnezia-monitor/releases/latest/download/AmneziaMonitor-win-x64.zip.sha256). Имена файлов в релизах всегда одни и те же.
 
 1. Скачайте zip.
 2. Распакуйте архив в любую папку.
@@ -33,9 +33,20 @@ Amnezia Monitor показывает состояние ваших сервер�
 
 **Смена ключа сервера.** Если SSH-ключ сервера не совпадает с сохранённым (переустановка системы, пересоздание сервера у хостера — или перехват), вход останавливается до отправки пароля. «Настройки → Проверить подключение» показывает сохранённый и новый отпечатки SHA256 и кнопку «Доверять новому ключу». Сверьте новый отпечаток на самом сервере (`ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub`) и только потом подтверждайте. Ключ заменяется, только если сервер в этот момент показывает тот же отпечаток.
 
+### Обновление из программы
+
+Windows и Android умеют обновляться сами из [GitHub Releases](https://github.com/freeon1989/amnezia-monitor/releases). При запуске программа спрашивает `api.github.com`, нет ли нового релиза (отключается в «Настройки → Обновления»), и показывает список изменений. Кнопка «Проверить обновления» делает то же по требованию.
+
+- **Без вашего нажатия ничего не скачивается и не ставится.** Есть кнопки «Обновить» и «Пропустить эту версию».
+- Файл берётся только по HTTPS с хостов GitHub (в том числе после перенаправлений). Он принимается, только если его SHA-256 совпал с файлом `.sha256` из того же релиза; при несовпадении обновление отменяется и ничего не меняется.
+- **Windows:** после скачивания нажмите «Перезапустить и установить». Помощник дожидается закрытия программы, проверяет, что новый exe запускается, заменяет файл (прежний остаётся рядом как `AmneziaMonitor.exe.bak`), запускает новую версию, а при ошибке запуска возвращает прежнюю. Настройки и база в `%APPDATA%\AmneziaMonitor` не затрагиваются. Папка с программой должна быть доступна для записи (не `Program Files`).
+- **Android:** после проверки контрольной суммы открывается системный установщик, установку подтверждаете вы. При первом обновлении Android попросит разрешить установку из этого приложения.
+- **macOS:** автоустановки нет, приложение-спутник только сообщает о новой версии со ссылкой на страницу релиза.
+- Для релиза нужны файлы с постоянными именами: `AmneziaMonitor-win-x64.zip`, `AmneziaMonitor-android.apk` и рядом `.sha256` каждого (см. `scripts/publish_release.sh`).
+
 ### Android
 
-Файл [AmneziaMonitor-android-v1.4.2.apk](https://github.com/freeon1989/amnezia-monitor/releases/download/v1.4.2/AmneziaMonitor-android-v1.4.2.apk) ([.sha256](https://github.com/freeon1989/amnezia-monitor/releases/download/v1.4.2/AmneziaMonitor-android-v1.4.2.apk.sha256)). В v1.4.2: героиня занимает всю высоту карточки и подстраивается под экран; в круге за ней — мягкий флаг страны и кольца нагрузки (снаружи CPU, внутри память; цвет от акцента к оранжевому ≥70% и красному ≥90%). В v1.4.1: у серверов, которые телефон опрашивает сам по SSH, появились история, графики, доступность и пинг (история копится, пока приложение открыто). В v1.4.0: оформление «Neon Latex» — фон-город страны сервера, флаги на карточках, героиня и цвета страны на экране сервера, переключение серверов флажками, переключатель «Анимации» (подробнее — [android/README.md](android/README.md)). С v1.2.0: смена ключа SSH сервера показывается со старым и новым отпечатками и кнопкой «Доверять новому ключу», «Сайты» читают журнал Amnezia Unbound. Подпись та же, что у v1.2.0–v1.4.1, — обновление ставится поверх. Если Android не ставит APK поверх старой версии (другая подпись отладочной сборки), удалите старую версию и установите заново. Приложение-спутник: показывает данные панели Windows по локальной сети. На компьютере включите доступ из локальной сети и скопируйте токен в настройках. Это отладочная сборка: разрешите установку из неизвестных источников.
+Файл [AmneziaMonitor-android.apk](https://github.com/freeon1989/amnezia-monitor/releases/latest/download/AmneziaMonitor-android.apk) ([.sha256](https://github.com/freeon1989/amnezia-monitor/releases/latest/download/AmneziaMonitor-android.apk.sha256)). В v1.5.0: обновление из приложения (Настройки → Обновления: проверка на GitHub, список изменений, «Обновить» — файл скачивается и сверяется по SHA-256, установку подтверждаете в окне Android). В v1.4.2: героиня занимает всю высоту карточки и подстраивается под экран; в круге за ней — мягкий флаг страны и кольца нагрузки (снаружи CPU, внутри память; цвет от акцента к оранжевому ≥70% и красному ≥90%). В v1.4.1: у серверов, которые телефон опрашивает сам по SSH, появились история, графики, доступность и пинг (история копится, пока приложение открыто). В v1.4.0: оформление «Neon Latex» — фон-город страны сервера, флаги на карточках, героиня и цвета страны на экране сервера, переключение серверов флажками, переключатель «Анимации» (подробнее — [android/README.md](android/README.md)). С v1.2.0: смена ключа SSH сервера показывается со старым и новым отпечатками и кнопкой «Доверять новому ключу», «Сайты» читают журнал Amnezia Unbound. Подпись та же, что у v1.2.0–v1.4.1, — обновление ставится поверх. Если Android не ставит APK поверх старой версии (другая подпись отладочной сборки), удалите старую версию и установите заново. Приложение-спутник: показывает данные панели Windows по локальной сети. На компьютере включите доступ из локальной сети и скопируйте токен в настройках. Это отладочная сборка: разрешите установку из неизвестных источников.
 
 ### macOS
 

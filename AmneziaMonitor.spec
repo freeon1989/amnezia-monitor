@@ -18,7 +18,7 @@ except Exception as e:  # без значка .exe всё равно собер�
     icon_path = None
 
 hidden = [
-    "amnezia_monitor", "app_main", "app_settings", "app_window", "hostkeys", "secrets_store", "dashboard", "dashboard_api", "dns_setup", "blockcheck",
+    "amnezia_monitor", "app_main", "app_settings", "app_window", "hostkeys", "secrets_store", "dashboard", "dashboard_api", "dns_setup", "blockcheck", "updater", "version",
     "theme", "demo_data", "yaml", "requests", "pystray._win32", "PIL.Image", "PIL.ImageDraw",
     "webview", "webview.platforms.winforms", "webview.platforms.edgechromium",
     "clr", "clr_loader", "pythonnet",

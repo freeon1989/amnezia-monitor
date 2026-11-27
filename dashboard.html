@@ -190,6 +190,11 @@ tr:last-child td{border-bottom:0}
 .pill.ok{border-color:#34d39955;color:var(--green);background:#34d39912}.pill.warn{border-color:#fbbf2455;color:var(--amber);background:#fbbf2412}
 .steps{list-style:none;margin:12px 0 0;padding:0}.steps li{display:flex;gap:10px;padding:7px 0;border-bottom:1px solid var(--track);font-size:13px}
 .steps li:last-child{border-bottom:0}.steps .st{font-weight:600;min-width:150px}
+.updbar{margin:0 0 14px;padding:12px 14px;border-radius:12px;background:#6366f114;border:1px solid #818cf866;font-size:13px;line-height:1.5}
+.updbar.ok{background:#34d39914;border-color:#34d39955}.updbar.err{background:#f8717114;border-color:#f8717155}
+.updbar .row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:8px}
+.updbar pre{white-space:pre-wrap;word-break:break-word;max-height:240px;overflow:auto;margin:8px 0 0;padding:10px;border-radius:8px;background:#0006;font:12px/1.5 inherit}
+.updprog{height:6px;border-radius:4px;background:#ffffff1a;overflow:hidden;margin-top:8px}.updprog i{display:block;height:100%;background:var(--accent)}
 .msg{margin-top:12px;padding:10px 12px;border-radius:10px;font-size:13px}
 .msg.ok{background:#34d39914;border:1px solid #34d39955;color:#a7f3d0}.msg.err{background:#f8717114;border:1px solid #f8717155;color:#fecaca}
 .srvrow td{vertical-align:top}.srvrow .nm{font-weight:600;white-space:nowrap}.srvrow .sm{font-size:12px;color:var(--dim)}
@@ -239,6 +244,7 @@ html.noanim .petals{display:none}
     <div class="upd"><span id="badge"></span><span class="pulse" id="pulse"></span><span id="upd">загрузка…</span>
       <button class="toggle" id="animBtn" type="button" title="Анимации: свечение, лепестки, «дыхание» героини"><i></i>Анимации</button><span id="navbtn"></span></div>
   </header>
+  <div id="updBanner" hidden></div>
   <div id="setView" hidden></div>
   <div id="dashView">
   <nav class="tabs" id="tabs"></nav>
@@ -948,9 +954,13 @@ function renderSettings(){
     </div>
     <div class="card" style="margin-top:16px"><h3>Программа</h3>
       <div class="kv"><span>Папка данных</span><code>${esc(S.data_dir)}</code><span>Шифрование</span><span>${esc(S.encryption)}</span></div>
+      <div class="kv"><span>Версия</span><span>${esc(S.version||"")}</span></div>
       ${S.can_quit? `<div class="actions"><button class="btn danger sm" onclick="quitApp()">Остановить программу</button></div>`:""}
     </div>
+    <div class="card" style="margin-top:16px"><h3>Обновления</h3><div id="updBox"></div>
+    </div>
   </div></div>`;
+  renderUpdate();
 }
 function payload(servers, general){
   const body = { servers, interval: general? +fv("g_int") : S.interval,
@@ -1002,6 +1012,82 @@ async function quitApp(){
   document.body.innerHTML = `<div class="wrap"><div class="card" style="margin-top:60px;text-align:center;padding:40px">Amnezia Monitor остановлен. Это окно можно закрыть.</div></div>`;
 }
 
+
+/* ---------------------------------------------------------------- Обновление программы (GitHub Releases) */
+let UP = null, upErr = "", upNotes = false, upBusy = "", upPoll = null;
+async function upLoad(){
+  if(!META.settings || STATIC) return;
+  try{ UP = await api("GET","/api/update/status"); }catch(e){ return; }
+  renderUpdate(); upEnsurePoll();
+}
+async function upCall(action, body){
+  upErr = ""; upBusy = action; renderUpdate();
+  try{ UP = await api("POST","/api/update/"+action, body||{}); }catch(e){ upErr = e.message; }
+  upBusy = ""; renderUpdate(); upEnsurePoll();
+}
+function upEnsurePoll(){
+  const need = UP && UP.phase==="downloading";
+  if(need && !upPoll) upPoll = setInterval(upLoad, 700);
+  if(!need && upPoll){ clearInterval(upPoll); upPoll = null; }
+}
+function upMb(n){ return (n/1048576).toFixed(1).replace(".",",")+" МБ"; }
+function upBannerHtml(){
+  if(!UP) return "";
+  const r = UP.release, lr = UP.last_result, parts = [];
+  if(lr){
+    parts.push(`<div class="updbar ${lr.ok?"ok":"err"}"><b>${lr.ok? "Обновление установлено":"Обновление не удалось"}</b> — ${esc(lr.message||"")}
+      <div class="row"><button class="btn ghost sm" onclick="upCall('ack')">Понятно</button></div></div>`);
+  }
+  const hot = UP.phase==="downloading" || UP.phase==="ready" || (UP.available && !UP.skipped);
+  if(r && hot){
+    let body = `<b>Доступна новая версия ${esc(r.version)}</b> (у вас ${esc(UP.current)}).`;
+    let row = "";
+    if(UP.phase==="downloading"){
+      const p = UP.progress||{}; const pct = p.total? Math.min(100, Math.round(p.done*100/p.total)) : 0;
+      body += ` Скачиваю${p.total? ": "+upMb(p.done)+" из "+upMb(p.total) : "…"} и проверяю контрольную сумму.
+        <div class="updprog"><i style="width:${pct}%"></i></div>`;
+    } else if(UP.phase==="ready"){
+      body += ` Файл скачан, SHA-256 совпала. Программа закроется, заменит файл и запустится снова; настройки и база сохранятся.`;
+      row = `<button class="btn sm" onclick="upCall('restart')" ${upBusy?"disabled":""}>Перезапустить и установить</button>`;
+    } else {
+      if(UP.can_install && r.has_asset) row = `<button class="btn sm" onclick="upCall('download')" ${upBusy?"disabled":""}>Обновить</button>`;
+      else row = `<button class="btn sm" onclick="upCall('open')">Открыть страницу релиза</button>`;
+      row += `<button class="btn ghost sm" onclick="upNotes=!upNotes;renderUpdate()">${upNotes?"Скрыть":"Что нового"}</button>
+              <button class="btn ghost sm" onclick="upCall('skip',{version:'${esc(r.version)}'})">Пропустить эту версию</button>`;
+      if(!UP.can_install) body += " В этой сборке автоустановки нет — скачайте новую версию со страницы релиза.";
+    }
+    const err = (UP.phase==="error" || upErr)? `<div style="color:#fecaca;margin-top:6px">${esc(upErr||UP.error)}</div>` : "";
+    parts.push(`<div class="updbar">${body}${err}<div class="row">${row}</div>${upNotes && UP.phase==="idle"? `<pre>${esc(r.notes||"Описание не указано.")}</pre>`:""}</div>`);
+  } else if(UP.phase==="error" && r && UP.available){
+    parts.push(`<div class="updbar err">${esc(UP.error)}<div class="row"><button class="btn sm" onclick="upCall('download')">Повторить</button></div></div>`);
+  }
+  return parts.join("");
+}
+function upBoxHtml(){
+  if(!UP) return `<div class="empty">Состояние обновлений недоступно</div>`;
+  const r = UP.release;
+  let st;
+  if(upBusy==="check" || UP.phase==="checking") st = "Проверяю…";
+  else if(upErr || UP.phase==="error") st = `<span style="color:#fecaca">${esc(upErr||UP.error)}</span>`;
+  else if(UP.available) st = `Есть версия <b>${esc(r.version)}</b>${UP.skipped? " (вы её пропустили)":""}. ${UP.skipped? `<a href="#" onclick="event.preventDefault();upCall('skip',{version:''})">Показывать снова</a>`:"Кнопки установки — в верхней панели."}`;
+  else if(UP.checked_at) st = "У вас последняя версия.";
+  else st = "Ещё не проверялось.";
+  const when = UP.checked_at? new Date(UP.checked_at*1000).toLocaleString("ru-RU") : "—";
+  return `<div class="form">
+    <div class="fld s6"><label class="chk"><input type="checkbox" ${UP.auto_check?"checked":""} onchange="upCall('settings',{auto_check:this.checked})"> Проверять обновления при запуске</label>
+      <span class="hint">Программа только спрашивает api.github.com, есть ли новый релиз. Скачивание и установка — только после вашего нажатия «Обновить».</span></div>
+  </div>
+  <div class="kv"><span>Текущая версия</span><span>${esc(UP.current)}</span><span>Последняя проверка</span><span>${esc(when)}</span><span>Состояние</span><span>${st}</span></div>
+  <div class="actions"><button class="btn sm" onclick="upCall('check')" ${upBusy==="check"?"disabled":""}>Проверить обновления</button>
+    ${r && UP.available && !UP.can_install? `<button class="btn ghost sm" onclick="upCall('open')">Страница релиза</button>`:""}</div>
+  ${UP.available && upNotes? `<pre style="white-space:pre-wrap">${esc(r.notes||"")}</pre>`:""}`;
+}
+function renderUpdate(){
+  const b = $("updBanner"); if(!b) return;
+  const h = upBannerHtml(); b.hidden = !h; b.innerHTML = h;
+  const box = $("updBox"); if(box) box.innerHTML = upBoxHtml();
+}
+
 if(META.demo) $("badge").innerHTML='<span class="badge">демо-данные</span>';
 makePetals();
 setAnim(META.animations!==false, false);
@@ -1010,6 +1096,7 @@ applyTheme(DEFAULT_THEME);
 renderNav();
 if(view==="settings") showView("settings"); else load();
 tick(); setInterval(tick, 1000);
+setTimeout(upLoad, 1500); setInterval(upLoad, 120000);
 if(!STATIC) setInterval(load, REFRESH_MS);
 window.addEventListener("hashchange", ()=>{
   if(location.hash==="#settings"){ if(META.settings && view!=="settings") showView("settings"); return; }

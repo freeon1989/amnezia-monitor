@@ -8,6 +8,7 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.platform.LocalContext
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.Lifecycle
@@ -60,6 +61,13 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun MonitorApp(vm: MonitorViewModel) {
     val nav = rememberNavController()
+    val ctx = LocalContext.current
+    LaunchedEffect(Unit) { vm.startUpdateCheckOnLaunch() }
+    LaunchedEffect(vm.pendingInstall) {
+        val f = vm.pendingInstall ?: return@LaunchedEffect
+        vm.installHandled(UpdateInstaller.install(ctx, f))
+    }
+    UpdatePrompt(vm)
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val obs = LifecycleEventObserver { _, event ->

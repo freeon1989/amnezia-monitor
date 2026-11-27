@@ -20,6 +20,7 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
+import androidx.compose.material3.Button
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -173,6 +174,7 @@ fun SettingsScreen(vm: MonitorViewModel, onBack: () -> Unit) {
                 onDelete = { dropImport = it },
                 onCountry = { countryFor = it },
             )
+            UpdateCard(vm)
             AppearanceCard(
                 animations = settings.animations,
                 geoip = settings.geoip,
@@ -431,6 +433,64 @@ private fun AppearanceCard(animations: Boolean, geoip: Boolean, onAnimations: (B
                 "Только для импортированных серверов без выбранной страны, если её не видно по названию. IP-адрес (без паролей и ключей) уходит на ip-api.com, ответ хранится 30 дней. По умолчанию выключено. Для серверов из панели ПК страну берёт сама панель.",
                 color = Muted, style = MaterialTheme.typography.bodySmall,
             )
+        }
+    }
+}
+
+@Composable
+private fun UpdateCard(vm: MonitorViewModel) {
+    val u = vm.update
+    val rel = u.release
+    val uri = androidx.compose.ui.platform.LocalUriHandler.current
+    Card(colors = CardDefaults.cardColors(containerColor = Card), border = GlassBorder, modifier = Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text("Обновления", fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.titleMedium)
+            Text("Текущая версия: ${u.current}", color = Muted)
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text("Проверять при запуске", modifier = Modifier.weight(1f))
+                Switch(
+                    checked = u.autoCheck, onCheckedChange = vm::setAutoUpdateCheck,
+                    colors = SwitchDefaults.colors(checkedTrackColor = LocalAccent.current),
+                )
+            }
+            Text(
+                "Приложение только спрашивает GitHub, есть ли новый релиз. Скачивание и установка — после вашего нажатия «Обновить», установку подтверждает Android.",
+                color = Muted, style = MaterialTheme.typography.bodySmall,
+            )
+            when {
+                u.checking -> Text("Проверяю…", color = Muted)
+                u.downloading -> Text(
+                    "Скачиваю и проверяю контрольную сумму" + (u.progress?.let { ": ${(it * 100).toInt()}%" } ?: "…"),
+                    color = Muted,
+                )
+                u.error != null -> Text(u.error, color = MaterialTheme.colorScheme.error)
+                u.available && rel != null -> Text(
+                    "Есть версия ${rel.version}" + if (u.skipped) " (вы её пропустили)" else "",
+                    fontWeight = FontWeight.SemiBold,
+                )
+                u.upToDate -> Text("У вас последняя версия.", color = Muted)
+            }
+            u.message?.let { Text(it, color = Muted, style = MaterialTheme.typography.bodySmall) }
+            if (u.available && rel != null && !u.downloading) {
+                Text(rel.notes.ifBlank { "Описание не указано." }, style = MaterialTheme.typography.bodySmall, color = Muted)
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton(onClick = { vm.checkUpdate(manual = true) }, enabled = !u.checking && !u.downloading) {
+                    Text("Проверить обновления")
+                }
+                if (u.available && rel != null) {
+                    if (rel.hasAsset) {
+                        Button(onClick = vm::installUpdate, enabled = !u.downloading) { Text("Обновить") }
+                    } else if (org.amnezia.monitor.data.AppUpdate.pageOk(rel.pageUrl)) {
+                        Button(onClick = { uri.openUri(rel.pageUrl) }) { Text("Страница релиза") }
+                    }
+                }
+            }
+            if (u.available && rel != null) {
+                TextButton(onClick = { if (u.skipped) vm.unskipUpdate() else vm.skipUpdate() }) {
+                    Text(if (u.skipped) "Показывать эту версию снова" else "Пропустить эту версию")
+                }
+            }
         }
     }
 }

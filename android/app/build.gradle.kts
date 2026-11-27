@@ -13,8 +13,8 @@ android {
         applicationId = "org.amnezia.monitor"
         minSdk = 26
         targetSdk = 35
-        versionCode = 8
-        versionName = "1.4.2"
+        versionCode = 9
+        versionName = "1.5.0"
     }
 
     buildTypes {
@@ -82,5 +82,6 @@ dependencies {
     testImplementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.7.3")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.9.0")
     // Скриншоты экранов без эмулятора: ./gradlew testDebugUnitTest -Pshots=1 (в APK не попадает)
+    testImplementation("com.squareup.okhttp3:mockwebserver:4.12.0")
     testImplementation("org.robolectric:robolectric:4.14.1")
 }

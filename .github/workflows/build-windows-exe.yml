@@ -144,6 +144,7 @@ jobs:
               "six",
               "_ssl",
               "app_window",
+              "updater",
               "hostkeys",
               "dns_setup",
               "blockcheck",
@@ -545,7 +546,8 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $stage = Join-Path $env:RUNNER_TEMP 'amnezia-pkg'
-          $root = Join-Path $stage 'AmneziaMonitor-win-x64-v1.4.0'
+          $ver = (python -c "from version import __version__ as v; print(v)").Trim()
+          $root = Join-Path $stage "AmneziaMonitor-win-x64-v$ver"
           if (Test-Path $stage) { Remove-Item -Recurse -Force $stage }
           New-Item -ItemType Directory -Path $root | Out-Null
           Copy-Item dist\AmneziaMonitor.exe (Join-Path $root 'AmneziaMonitor.exe')
@@ -583,11 +585,13 @@ jobs:
           В этом архиве нет servers.yaml, .env, личных адресов серверов и паролей.
           '@
           [System.IO.File]::WriteAllText((Join-Path $root 'START.txt'), ($start.Trim() -replace "`n", "`r`n") + "`r`n")
-          $zip = Join-Path (Get-Location) 'dist\AmneziaMonitor-win-x64-v1.4.0.zip'
+          # Стабильное имя файла: именно его ищет обновление из программы (и .sha256 рядом)
+          $zip = Join-Path (Get-Location) 'dist\AmneziaMonitor-win-x64.zip'
           if (Test-Path $zip) { Remove-Item -Force $zip }
           Compress-Archive -Path $root -DestinationPath $zip
           $zipHash = (Get-FileHash -Algorithm SHA256 $zip).Hash.ToLower()
-          Set-Content -Encoding ascii -Path build-meta\zip-sha256.txt -Value "$zipHash  AmneziaMonitor-win-x64-v1.4.0.zip"
+          Set-Content -Encoding ascii -Path build-meta\zip-sha256.txt -Value "$zipHash  AmneziaMonitor-win-x64.zip"
+          Set-Content -Encoding ascii -Path 'dist\AmneziaMonitor-win-x64.zip.sha256' -Value "$zipHash  AmneziaMonitor-win-x64.zip"
           Set-Content -Encoding ascii -Path build-meta\exe-sha256.txt -Value "$hash  AmneziaMonitor.exe"
           Write-Host "exe $hash"
           Write-Host "zip $zipHash"
@@ -595,9 +599,10 @@ jobs:
       - name: Upload distributable
         uses: actions/upload-artifact@v4
         with:
-          name: AmneziaMonitor-win-x64-v1.4.0
+          name: AmneziaMonitor-win-x64
           path: |
-            dist/AmneziaMonitor-win-x64-v1.4.0.zip
+            dist/AmneziaMonitor-win-x64.zip
+            dist/AmneziaMonitor-win-x64.zip.sha256
             build-meta/**
           if-no-files-found: error
           retention-days: 14

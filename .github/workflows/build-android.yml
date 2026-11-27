@@ -39,12 +39,13 @@ jobs:
           chmod +x gradlew
           ./gradlew --no-daemon testDebugUnitTest assembleDebug
           mkdir -p "$GITHUB_WORKSPACE/dist"
-          cp app/build/outputs/apk/debug/app-debug.apk "$GITHUB_WORKSPACE/dist/AmneziaMonitor-android-v1.4.2.apk"
-          cd "$GITHUB_WORKSPACE/dist" && sha256sum AmneziaMonitor-android-v1.4.2.apk > AmneziaMonitor-android-v1.4.2.apk.sha256
+          # Стабильные имена файлов: приложение ищет именно их при обновлении с GitHub
+          cp app/build/outputs/apk/debug/app-debug.apk "$GITHUB_WORKSPACE/dist/AmneziaMonitor-android.apk"
+          cd "$GITHUB_WORKSPACE/dist" && sha256sum AmneziaMonitor-android.apk > AmneziaMonitor-android.apk.sha256
       - name: Upload
         uses: actions/upload-artifact@v4
         with:
-          name: AmneziaMonitor-android-v1.4.2
+          name: AmneziaMonitor-android
           path: dist/*
           if-no-files-found: error
           retention-days: 14

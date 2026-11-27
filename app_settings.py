@@ -17,6 +17,7 @@ import yaml
 
 import secrets_store
 import theme
+from version import __version__
 
 NAME_RE = re.compile(r"^[\w.\- ]{1,40}$", re.UNICODE)
 HOST_RE = re.compile(r"^[A-Za-z0-9.\-:\[\]]{1,253}$")
@@ -313,7 +314,7 @@ class SettingsContext:
 
     def __init__(self, config_path, token: str, data_dir: str = "", on_saved=None, on_quit=None,
                  runner_factory=None, tcp=None, app_mode: bool = True, dns_remote_factory=None,
-                 hostkey_fetch=None, blocks=None, on_appearance=None):
+                 hostkey_fetch=None, blocks=None, on_appearance=None, updates=None, open_url=None):
         self.config_path = str(config_path)
         self.token = token
         self.data_dir = data_dir
@@ -326,12 +327,15 @@ class SettingsContext:
         self.hostkey_fetch = hostkey_fetch
         self.blocks = blocks          # blockcheck.BlockChecker (режим приложения)
         self.on_appearance = on_appearance
+        self.updates = updates        # updater.UpdateManager (режим приложения)
+        self.open_url = open_url      # открыть страницу релиза в браузере (подменяется в тестах)
 
     def get(self) -> dict:
         v = public_view(read_raw(self.config_path))
         v.update({"data_dir": self.data_dir, "config_path": self.config_path,
                   "encryption": "DPAPI (текущий пользователь Windows)" if secrets_store.IS_WINDOWS
-                  else "нет (файл с правами 600)", "can_quit": bool(self.on_quit)})
+                  else "нет (файл с правами 600)", "can_quit": bool(self.on_quit),
+                  "version": __version__, "updates": self.updates is not None})
         return v
 
     def save(self, payload: dict) -> dict:
@@ -430,3 +434,39 @@ class SettingsContext:
             raise SettingsError("неизвестный сервер")
         remote = self.dns_remote_factory(srv) if self.dns_remote_factory else None
         return dns_setup.run_for_server(srv, action, runner_factory=self.runner_factory, remote=remote)
+
+    def update_action(self, action: str, payload: dict) -> dict:
+        """Обновление программы с GitHub. Установка — только по явному нажатию (download → restart)."""
+        import updater
+        up = self.updates
+        if up is None:
+            raise SettingsError("обновление доступно только в режиме приложения")
+        try:
+            if action == "check":
+                return up.check(manual=True)
+            if action == "download":                      # нажатие «Обновить»
+                return up.start_download()
+            if action == "restart":                       # нажатие «Перезапустить и установить»
+                up.restart_now()
+                return up.status()
+            if action == "skip":
+                ver = str((payload or {}).get("version") or "")
+                up.skip(ver) if ver else up.unskip()            # пустая версия = снова показывать
+                return up.status()
+            if action == "settings":
+                if not isinstance((payload or {}).get("auto_check"), bool):
+                    raise SettingsError("auto_check: ожидается true/false")
+                up.set_auto_check(payload["auto_check"])
+                return up.status()
+            if action == "ack":
+                up.ack_result()
+                return up.status()
+            if action == "open":
+                rel = up.release
+                if not rel or not updater.release_page_ok(rel.page_url, up.src):
+                    raise SettingsError("страница релиза неизвестна: сначала проверьте обновления")
+                (self.open_url or __import__("webbrowser").open)(rel.page_url)
+                return up.status()
+        except updater.UpdateError as e:
+            raise SettingsError(str(e))
+        raise SettingsError("неизвестное действие")
