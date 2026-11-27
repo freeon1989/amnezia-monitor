@@ -56,10 +56,15 @@ Overview:
 
 The full server page, an offline server, settings and the Android companion are in [docs/screenshots/](docs/screenshots/) (see the [Russian README](README.md) for captions).
 
+Optional cascade mode (v1.6.0, off by default):
+
+![Cascade chain: entry to Amsterdam and Vienna, per-hop latency and traffic](docs/screenshots/dashboard-cascade.png)
+
 ## Features
 
 - Polls AmneziaVPN servers over SSH, read-only: reachability, CPU, memory, network, containers, clients.
 - A dashboard on this computer: status, 24-hour charts, who is online, traffic, events.
+- Optional cascade mode (v1.6.0, off by default). While it is off, the dashboard behaves exactly as before. When it is on, the panel shows the entry → exit chain, per-hop latency and traffic, and the entry’s clients on the exits (attributed through the entry). You mark servers as entry or exit and link them in Settings; you can also import topology from a local Cascade Control database (names, addresses and roles only, no secrets). The program still writes nothing to the servers: it only pings the exits from the entry.
 - Sites from the DNS log. On the server card there are “Enable DNS log”, “Check” and “Disable” buttons: they configure the log themselves (about 24 hours, 50 MB cap). The Sites section only reads existing Unbound records and archives for the last day.
 - “Neon Latex” appearance: a full-height heroine that grows with the window; a soft country flag and load rings behind her (outer arc is CPU, inner is memory). A country-city background, flag colours, an Animations toggle. The same look is used in the Android app. Flags are [flag-icons](https://github.com/lipis/flag-icons) (MIT).
 - Block checks: SSH and VPN ports are tested from this PC and from check-host.net nodes in Russia and abroad. The dashboard shows a verdict, “Russia” and “World” tabs, latencies and a “Check now” button.

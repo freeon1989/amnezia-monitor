@@ -223,6 +223,36 @@ html.noanim .petals{display:none}
   *,*::before,*::after{animation:none!important;transition-duration:.01s!important}
   .petals{display:none}}
 /* ---- адаптив ---- */
+
+/* ---- режим каскада (скрыт, пока выключен) ---- */
+.chain{display:flex;flex-wrap:nowrap;gap:10px;align-items:flex-start;margin:0}
+.chain>.chain-col{flex:0 0 250px;max-width:250px}
+.chain-col{flex:1 1 220px;min-width:180px}
+.chain-exits{flex:1 1 0;display:flex;flex-direction:column;gap:12px;min-width:0}
+.chain-exitrow{display:flex;align-items:stretch;gap:8px;min-width:0}
+.chain-exitrow .chain-col{flex:1 1 0}
+.chain-node{background:var(--card2);border:1px solid var(--line);border-radius:16px;padding:12px 14px;height:auto;
+  box-shadow:0 0 0 1px transparent;transition:border-color .3s,box-shadow .3s;cursor:pointer}
+.chain-node:hover{border-color:var(--accent-b);box-shadow:0 0 18px var(--accent-a)}
+.chain-node .role{display:inline-block;font-size:10px;letter-spacing:.8px;text-transform:uppercase;color:var(--accent2);
+  border:1px solid var(--accent-b);border-radius:999px;padding:1px 8px;margin-left:6px;vertical-align:middle}
+.chain-node .nm{font-weight:700;font-size:16px;display:flex;align-items:center;gap:8px}
+.chain-node .nm img{width:28px;height:21px;object-fit:cover;border-radius:4px;flex-shrink:0;
+  box-shadow:0 0 0 1px rgba(255,255,255,.22)}
+.chain-node .meta{color:var(--muted);font-size:12px;margin-top:6px}
+.chain-node .kv-h{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px;font-variant-numeric:tabular-nums}
+.chain-node .kv-h div{background:rgba(7,5,26,.35);border-radius:10px;padding:8px 10px}
+.chain-node .kv-h .l{color:var(--muted);font-size:10px;text-transform:uppercase;letter-spacing:.6px}
+.chain-node .kv-h .v{font-weight:650;margin-top:2px;white-space:nowrap}
+.chain-arrow{display:flex;flex-direction:column;justify-content:center;align-items:center;flex:0 0 92px;width:92px;min-width:92px;color:var(--muted);font-size:11px;text-align:center;gap:4px}
+.chain-arrow .line{width:100%;height:2px;background:linear-gradient(90deg,transparent,var(--accent),var(--accent2),transparent);border-radius:2px;position:relative}
+.chain-arrow .line:after{content:"";position:absolute;right:0;top:-4px;border:5px solid transparent;border-left-color:var(--accent2)}
+.chain-clients{margin-top:10px;font-size:12px;color:var(--muted)}
+.chain-clients b{color:var(--text);font-weight:600}
+.pill.role{font-size:10px;letter-spacing:.5px;text-transform:uppercase}
+.tab .role-mini{font-size:10px;color:var(--accent2);margin-left:6px}
+#cascadeBox{margin-bottom:16px}
+#cascadeBox[hidden]{display:none}
 @media (max-width:1380px){.row2{grid-template-columns:300px 1fr}.set-grid{grid-template-columns:1fr}}
 @media (max-width:1240px){.row4{grid-template-columns:1fr}}
 @media (max-width:1100px){.app{grid-template-columns:1fr}.stage{order:-1;position:sticky;top:0;z-index:5;width:100%;height:min(48vh,520px);min-height:240px;margin-bottom:14px}.row4{grid-template-columns:1.25fr 1fr}}
@@ -247,6 +277,10 @@ html.noanim .petals{display:none}
   <div id="updBanner" hidden></div>
   <div id="setView" hidden></div>
   <div id="dashView">
+  <section class="card" id="cascadeBox" hidden>
+    <h3><span>Цепочка каскада</span><span class="legend">вход → выходы · трафик и задержка по звеньям</span></h3>
+    <div id="cascade"></div>
+  </section>
   <nav class="tabs" id="tabs"></nav>
   <div id="srvBody" class="xfade">
   <div class="srvhead" id="srvhead"></div>
@@ -256,7 +290,7 @@ html.noanim .petals{display:none}
     <div class="card"><h3>Ресурсы сервера</h3><div id="res"></div></div>
     <div class="card"><h3><span>Трафик сетевого интерфейса сервера, 24 ч</span><span class="legend"><span><i style="background:var(--down)"></i>исходящий</span><span><i style="background:var(--up)"></i>входящий</span></span></h3><div id="traffic"></div></div>
   </section>
-  <section class="card users"><h3><span>Пользователи</span><span class="legend" id="usum"></span></h3><div class="tablewrap" id="users"></div></section>
+  <section class="card users" id="usersCard"><h3><span>Пользователи</span><span class="legend" id="usum"></span></h3><div class="tablewrap" id="users"></div></section>
   <section class="grid row4">
     <div class="card"><h3><span>Сайты (по DNS-запросам, 24 ч)</span><span class="legend" id="dnsq"></span></h3><div id="dns"></div></div>
     <div class="card"><h3>События</h3><ul class="events" id="events"></ul></div>
@@ -288,7 +322,7 @@ const STATIC = window.__DATA__ || null;
 const META = window.__META__ || {};
 let view = (META.settings && (location.hash==="#settings" || META.first_run)) ? "settings" : "dash";
 const REFRESH_MS = 15000;
-let servers = [], current = (location.hash==="#settings"? null : decodeURIComponent(location.hash.slice(1))) || null, detail = null, dnsUser = null, lastLoad = 0;
+let servers = [], cascade = null, current = (location.hash==="#settings"? null : decodeURIComponent(location.hash.slice(1))) || null, detail = null, dnsUser = null, lastLoad = 0;
 
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
@@ -388,10 +422,13 @@ async function getJSON(url){ const r = await fetch(url, {cache:"no-store"}); if(
 async function load(){
   if(view==="settings") return;
   try{
-    if(STATIC){ servers = STATIC.servers; }
-    else servers = await getJSON("/api/servers");
+    if(STATIC){ servers = STATIC.servers; cascade = STATIC.cascade || null; }
+    else {
+      const [sv, cas] = await Promise.all([getJSON("/api/servers"), getJSON("/api/cascade").catch(()=>null)]);
+      servers = sv; cascade = cas;
+    }
     if(!current || !servers.find(s=>s.name===current)) current = servers.length? servers[0].name : null;
-    renderTabs(); applyTheme(current? themeOf(current) : DEFAULT_THEME);
+    renderTabs(); renderCascade(); applyTheme(current? themeOf(current) : DEFAULT_THEME);
     if(!servers.length){ renderNoServers(); }
     else if(current){
       detail = STATIC ? STATIC.details[current] : await getJSON("/api/server?name="+encodeURIComponent(current));
@@ -415,6 +452,49 @@ function select(name){
   load().finally(()=>$("srvBody").classList.remove("out"));
 }
 
+
+function renderCascade(){
+  const box = $("cascadeBox"), el = $("cascade");
+  if(!box || !el) return;
+  const on = !!(cascade && cascade.enabled && (cascade.links||[]).length);
+  box.hidden = !on;
+  if(!on){ el.innerHTML = ""; return; }
+  el.innerHTML = cascade.links.map(link => {
+    const e = link.entry || {};
+    const hops = (link.exits||[]).map(x => {
+      const ms = x.hop_ms!=null? Math.round(x.hop_ms)+" мс" : "—";
+      return `<div class="chain-exitrow"><div class="chain-arrow"><div class="line"></div><div>${esc(ms)}</div></div>${chainNode(x)}</div>`;
+    }).join("");
+    const clients = (e.clients||[]);
+    const onl = clients.filter(c=>c.online).map(c=>c.client);
+    const off = clients.filter(c=>!c.online).map(c=>c.client);
+    let cl = "";
+    if(clients.length){
+      cl = `<div class="chain-clients">Клиенты за входом: ${onl.length? "<b>"+onl.map(esc).join("</b>, <b>")+"</b> онлайн": "никто не онлайн"}`
+        + (off.length? " · "+off.map(esc).join(", "): "") + "</div>";
+    }
+    return `<div class="chain">${chainNode(e)}<div class="chain-exits">${hops}</div></div>${cl}`;
+  }).join("");
+}
+function chainNode(n, hopMs){
+  const t = n.theme || DEFAULT_THEME;
+  const st = n.status==="up" ? "онлайн" : n.status==="nodata" ? "нет данных" : "недоступен";
+  const hop = hopMs!=null ? Math.round(hopMs)+" мс до выхода" : "";
+  return `<div class="chain-col"><div class="chain-node" data-n="${esc(n.name)}" onclick="select('${esc(n.name).replace(/'/g,"\\'")}')">
+    <div class="nm">${flagImg(t,"fl")}${esc(n.name)}<span class="role">${n.role==="entry"?"вход":"выход"}</span></div>
+    <div class="meta">${st}${n.tcp_ms!=null? " · до узла "+Math.round(n.tcp_ms)+" мс":""}${hop? " · "+hop:""}</div>
+    <div class="kv-h">
+      <div><div class="l">трафик ↓ / ↑</div><div class="v">${fmtR(n.rx_bps)} / ${fmtR(n.tx_bps)}</div></div>
+      <div><div class="l">${n.role==="entry"?"клиенты":"звено вход→выход"}</div><div class="v">${n.role==="entry"? ((n.clients||[]).filter(c=>c.online).length+" / "+(n.clients||[]).length) : (n.hop_ms!=null? Math.round(n.hop_ms)+" мс" : "—")}</div></div>
+    </div>
+  </div></div>`;
+}
+function chainHop(entry, ex){
+  const ms = ex.hop_ms!=null? Math.round(ex.hop_ms)+" мс" : "—";
+  const tr = (ex.rx_bps!=null || ex.tx_bps!=null)? fmtR(ex.rx_bps)+" / "+fmtR(ex.tx_bps) : "";
+  return `<div class="chain-arrow"><div class="line"></div><div>${esc(ms)}</div>${tr? `<div>${esc(tr)}</div>`:""}</div>` + chainNode(ex, ex.hop_ms);
+}
+
 function renderTabs(){
   $("tabs").innerHTML = servers.map(s=>{
     let sub = s.status==="nodata" ? "нет данных" : s.status==="down" ? "недоступен" :
@@ -422,7 +502,7 @@ function renderTabs(){
     if(s.block && s.block.verdict==="blocked_ru") sub += " · 🚫 блокировка";
     const t = s.theme || DEFAULT_THEME;
     return `<button class="tab ${s.name===current?"active":""}" data-n="${esc(s.name)}" title="${esc(t.country_name||"страна не определена")}"><span class="fl">${flagImg(t)}<span class="dot ${s.status}"></span></span>
-      <span><div class="nm">${esc(s.name)}</div><div class="sub">${esc(sub)}</div></span></button>`;
+      <span><div class="nm">${esc(s.name)}${s.role? `<span class="role-mini">${s.role==="entry"?"вход":"выход"}</span>`:""}</div><div class="sub">${esc(sub)}</div></span></button>`;
   }).join("");
   document.querySelectorAll(".tab").forEach(b=>b.onclick=()=>select(b.dataset.n));
 }
@@ -489,12 +569,12 @@ function renderDetail(){
   setStageLoad(c);
   if(d.status==="nodata"){ $("kpis").innerHTML=kpi("Статус","нет данных","дождитесь первого опроса","warn");
     ["res","traffic","users","dns"].forEach(k=>$(k).innerHTML=`<div class="empty">нет данных</div>`); $("events").innerHTML=""; return; }
-  const up=c.status==="up", online=d.users.filter(u=>u.online).length;
+  const visible=d.users.filter(u=>!u.tunnel), up=c.status==="up", online=visible.filter(u=>u.online).length;
   $("kpis").innerHTML =
     kpi("Статус", up?"● работает":"● недоступен", up? `доступность ${c.availability}% за 24 ч` : esc(c.error||"нет ответа"), up?"ok":"bad") +
     kpi("Задержка", c.tcp_ms!=null? Math.round(c.tcp_ms)+" мс":"—", c.latency_avg!=null? "в среднем "+Math.round(c.latency_avg)+" мс" : "", lvl(c.tcp_ms,150,400)) +
     kpi("Аптайм", fmtD(c.uptime_s), c.load1!=null? `load ${c.load1} · ${c.nproc} ядр.` : "") +
-    kpi("Онлайн", `${online} <span style="color:var(--dim);font-size:16px">из ${d.users.length}</span>`, "клиентов подключено") +
+    kpi("Онлайн", `${online} <span style="color:var(--dim);font-size:16px">из ${visible.length}</span>`, (visible.some(u=>u.via_entry)? "клиентов входа через вход": "клиентов подключено")) +
     kpi("Трафик сейчас", `<span style="color:var(--down)">↓</span>${fmtR(c.tx_bps)}`, `<span style="color:var(--up)">↑</span> ${fmtR(c.rx_bps)}`);
 
   const memSub = c.mem_total? fmtB(c.mem_used)+" из "+fmtB(c.mem_total) : "";
@@ -516,7 +596,7 @@ function renderDetail(){
       const st = u.online? `<span class="ok">● онлайн</span><div class="sm" style="color:var(--dim);font-size:11px">handshake ${fmtD(u.handshake_age)} назад</div>`
         : `<span style="color:var(--dim)">○ офлайн</span><div style="color:var(--dim);font-size:11px">${u.handshake_age!=null? "был "+fmtD(u.handshake_age)+" назад":"не подключался"}</div>`;
       const pd=(u.down_24h/maxU*100).toFixed(1), pu=(u.up_24h/maxU*100).toFixed(1);
-      return `<tr><td><div class="user"><div class="avatar" style="background:${col}22;color:${col}">${ini}</div><div><div class="nm">${esc(u.client)}</div><div class="sm">${esc(u.container.replace("amnezia-",""))}${u.endpoint? " · "+esc(u.endpoint):""}</div></div></div></td>
+      return `<tr><td><div class="user"><div class="avatar" style="background:${col}22;color:${col}">${ini}</div><div><div class="nm">${esc(u.client)}</div><div class="sm">${u.via_entry? "через вход «"+esc(u.via_entry)+"»": (u.tunnel? "туннель каскада": esc((u.container||"").replace("amnezia-","")))}${u.endpoint && !u.via_entry? " · "+esc(u.endpoint):""}</div></div></div></td>
         <td>${st}</td>
         <td class="rate"><div><span class="d">↓</span> ${fmtR(u.rate_down)}</div><div><span class="u">↑</span> ${fmtR(u.rate_up)}</div></td>
         <td>${spark(u.spark, col)}</td>
@@ -528,6 +608,11 @@ function renderDetail(){
   $("events").innerHTML = d.events.length? d.events.map(e=>`<li><time>${ddhhmm(e.ts)}</time><span>${esc(e.message.replace(d.name+": ",""))}</span></li>`).join("")
     : `<li class="empty">событий нет</li>`;
   $("foot").textContent = `${d.name}${d.host? " · "+d.host:""} · данные из локальной истории агента · ${STATIC? "статичная копия":"автообновление каждые 15 с"}`;
+  const usersSec = $("usersCard"), blk = $("blkCard"), row2 = $("traffic") && $("traffic").closest("section");
+  if(usersSec && blk){
+    if((d.users||[]).some(u=>u.via_entry)) blk.parentNode.insertBefore(usersSec, blk);
+    else if(row2 && row2.nextSibling !== usersSec) row2.parentNode.insertBefore(usersSec, row2.nextSibling);
+  }
 }
 
 let dnsBusy = false, dnsAct = null;
@@ -952,6 +1037,24 @@ function renderSettings(){
           <span class="hint">Только для серверов, у которых страна не выбрана вручную и не угадывается по названию. IP-адрес сервера (без паролей и ключей) отправляется на ip-api.com, ответ хранится 30 дней. По умолчанию выключено.</span></div>
       </div>
     </div>
+    <div class="card" style="margin-top:16px"><h3>Режим каскада</h3>
+      <div class="form">
+        <div class="fld s6"><label class="chk"><input type="checkbox" id="c_on" ${S.cascade && S.cascade.enabled? "checked":""} onchange="toggleCascade(this.checked)"> Режим каскада</label>
+          <span class="hint">Выключен по умолчанию. Пока выключен, панель выглядит и работает как раньше: каждый сервер сам по себе. Включите, если у вас цепочка «вход (РФ) → выходы (например, Амстердам и Вена)»: тогда видно звенья, задержку и трафик по каждому, а клиенты входа показываются на выходах через вход.</span></div>
+      </div>
+      <div id="c_body" ${S.cascade && S.cascade.enabled? "":"hidden"}>
+        ${(S.cascade && S.cascade.links || []).map((ln,i)=>cascadeLinkForm(ln,i)).join("") || `<div class="empty">Связок пока нет — добавьте вход и выходы.</div>`}
+        <div class="actions"><button class="btn sm" onclick="addCascadeLink()">+ Связка вход → выходы</button>
+          <button class="btn" onclick="saveCascade()">Сохранить каскад</button></div>
+        <div class="form" style="margin-top:12px">
+          <div class="fld s6"><label>Импорт из Cascade Control (необязательно)</label>
+            <input id="c_path" value="${esc((S.cascadeImport && S.cascadeImport.db_path) || "")}" placeholder="путь к cascade.db, пусто = найти автоматически">
+            <span class="hint">Читаются только имена, адреса и роли. Пароли и ключи не трогаются. Серверы должны быть уже добавлены в монитор (сопоставление по адресу или имени). Импорт не сохраняет настройки, пока вы не нажмёте «Сохранить каскад».</span></div>
+        </div>
+        <div class="actions"><button class="btn ghost sm" onclick="importCascade()">Найти и подставить связки</button></div>
+        ${S.cascadeImport? cascadeImportPreview(S.cascadeImport) : ""}
+      </div>
+    </div>
     <div class="card" style="margin-top:16px"><h3>Программа</h3>
       <div class="kv"><span>Папка данных</span><code>${esc(S.data_dir)}</code><span>Шифрование</span><span>${esc(S.encryption)}</span></div>
       <div class="kv"><span>Версия</span><span>${esc(S.version||"")}</span></div>
@@ -962,6 +1065,74 @@ function renderSettings(){
   </div></div>`;
   renderUpdate();
 }
+
+function cascadeLinkForm(ln, i){
+  const names = (S.servers||[]).map(s=>s.name);
+  const usedEntries = new Set((S.cascade.links||[]).map((x,j)=>j===i? null : x.entry));
+  const entryOpts = names.map(n=>`<option value="${esc(n)}" ${ln.entry===n?"selected":""} ${usedEntries.has(n)?"disabled":""}>${esc(n)}</option>`).join("");
+  const exits = new Set(ln.exits||[]);
+  const exitList = names.filter(n=>n!==ln.entry).map(n=>`<label class="chk"><input type="checkbox" data-link="${i}" data-exit="${esc(n)}" ${exits.has(n)?"checked":""}> ${esc(n)}</label>`).join("")
+    || `<div class="empty">Сначала добавьте ещё серверы</div>`;
+  return `<div class="form" style="margin-top:10px;padding-top:10px;border-top:1px solid var(--line)" data-clink>
+    <div class="fld s6"><label>Вход</label><select data-entry="${i}"><option value="">— выберите вход —</option>${entryOpts}</select></div>
+    <div class="fld s6"><label>Выходы</label><div style="display:flex;flex-wrap:wrap;gap:8px 14px;margin-top:6px">${exitList}</div></div>
+    <div class="actions"><button class="btn danger sm" onclick="delCascadeLink(${i})">Удалить связку</button></div>
+  </div>`;
+}
+function readCascadeForm(){
+  const enabled = !!($("c_on")||{}).checked;
+  const links = [];
+  document.querySelectorAll("[data-clink]").forEach((box,i)=>{
+    const sel = box.querySelector("select[data-entry]");
+    const entry = sel? sel.value : "";
+    const exits = [...box.querySelectorAll("input[data-exit]:checked")].map(x=>x.getAttribute("data-exit")).filter(Boolean);
+    if(entry && exits.length) links.push({entry, exits});
+  });
+  return {enabled, links};
+}
+function toggleCascade(on){
+  if(!S.cascade) S.cascade = {enabled:false, links:[]};
+  S.cascade.enabled = !!on;
+  if(on && !(S.cascade.links||[]).length) S.cascade.links = [{entry:"", exits:[]}];
+  renderSettings();
+}
+function addCascadeLink(){
+  if(!S.cascade) S.cascade = {enabled:true, links:[]};
+  S.cascade.enabled = true;
+  S.cascade.links = (S.cascade.links||[]).concat([{entry:"", exits:[]}]);
+  renderSettings();
+}
+function delCascadeLink(i){
+  S.cascade.links.splice(i,1);
+  renderSettings();
+}
+async function saveCascade(){
+  const cas = readCascadeForm();
+  if(cas.enabled && !cas.links.length){ setMsg={err:"Включили режим каскада — укажите вход и хотя бы один выход."}; renderSettings(); return; }
+  await save(Object.assign(payload(S.servers.map(keep)), {cascade: cas}),
+             cas.enabled? "Режим каскада сохранён." : "Режим каскада выключен. Панель снова как раньше.");
+}
+async function importCascade(){
+  try{
+    const j = await api("POST","/api/settings/cascade-import",{path: fv("c_path").trim()});
+    S.cascadeImport = j;
+    if(j.links && j.links.length){
+      S.cascade = S.cascade || {enabled:true, links:[]};
+      S.cascade.enabled = true;
+      S.cascade.links = j.links;
+      setMsg={ok: j.found? "Связки подставлены. Нажмите «Сохранить каскад», если всё верно." : "Связки не найдены."};
+    }else{
+      setMsg={err: (j.unmatched && j.unmatched.length)? "Сопоставить не удалось: сначала добавьте эти серверы в монитор." : "В базе нет цепочек, которые можно подставить."};
+    }
+  }catch(e){ setMsg={err:e.message}; }
+  renderSettings();
+}
+function cascadeImportPreview(j){
+  const um = (j.unmatched||[]).map(u=>`${esc(u.name)} (${esc(u.role||"?")}): ${esc(u.reason)}`).join("<br>");
+  const ok = (j.links||[]).map(l=>esc(l.entry)+" → "+(l.exits||[]).map(esc).join(", ")).join("<br>");
+  return `<div class="msg ${j.found?"ok":"err"}" style="margin-top:10px">${ok? "<div><b>Будет сохранено:</b><br>"+ok+"</div>":""}${um? "<div style=\"margin-top:6px\">Не сопоставлено:<br>"+um+"</div>":""}</div>`;
+}
+
 function payload(servers, general){
   const body = { servers, interval: general? +fv("g_int") : S.interval,
     telegram: general || {chat_id: S.telegram.chat_id} };

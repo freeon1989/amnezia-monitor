@@ -87,6 +87,7 @@ class Config:
     block_check_hours: float = 6.0                     # период фоновой проверки, часов
     animations: bool = True                            # анимации панели (appearance.animations)
     geoip: bool = False                                # страна сервера по IP через ip-api.com (appearance.geoip)
+    cascade: object = None                             # cascade.CascadeCfg; по умолчанию выключен
 
 
 _PORT_ITEM_RE = re.compile(r"^(\d{1,5})(?:/(tcp|udp|tls))?$", re.I)
@@ -144,6 +145,17 @@ def _tg_token(tg: dict) -> Optional[str]:
 def _country_code(value) -> str:
     v = str(value or "").strip().lower()
     return v if re.match(r"^[a-z]{2}$", v) else ""
+
+
+
+def _load_cascade(raw: dict, names: list):
+    """Секция cascade необязательна. Битые ссылки отбрасываются, панель не падает."""
+    import cascade
+    try:
+        return cascade.parse_cascade(raw, names, strict=False)
+    except Exception as e:
+        log.warning("Секция cascade пропущена: %s", e)
+        return cascade.empty()
 
 
 def load_config(path: str, allow_empty: bool = False) -> Config:
@@ -226,6 +238,7 @@ def load_config(path: str, allow_empty: bool = False) -> Config:
         block_check_hours=min(168.0, max(1.0, bc_hours)),
         animations=bool((raw.get("appearance") or {}).get("animations", True)),
         geoip=bool((raw.get("appearance") or {}).get("geoip", False)),
+        cascade=_load_cascade(raw, [s.name for s in servers]),
     )
 
 # ---------------------------------------------------------------------------
@@ -650,7 +663,9 @@ READ_ONLY_COMMANDS = {
 }
 DNS_TAIL_LINES = 3000
 # Белый список: любая команда, не начинающаяся с этих префиксов, будет отклонена.
-_ALLOWED_RE = re.compile(r"^(cat /proc/|head -1 /proc/stat(; sleep 1; head -1 /proc/stat)?$|nproc$|(sudo -n )?docker (ps|exec \S+ sh -c '(awg|wg|cat|tail) )"
+_ALLOWED_RE = re.compile(r"^(cat /proc/|head -1 /proc/stat(; sleep 1; head -1 /proc/stat)?$|nproc$|"
+                         r"ping -c 2 -W 2 [A-Za-z0-9.:\[\]\-]+$|"
+                         r"(sudo -n )?docker (ps|exec \S+ sh -c '(awg|wg|cat|tail) )"
                          r"|(sudo -n )?docker logs --tail \d+ [\w.-]+$)")
 
 
@@ -763,10 +778,13 @@ CREATE TABLE IF NOT EXISTS dns (
   id INTEGER PRIMARY KEY, ts REAL, server TEXT, client TEXT, ip TEXT, domain TEXT, site TEXT, qtype TEXT);
 CREATE TABLE IF NOT EXISTS block_checks (
   id INTEGER PRIMARY KEY, ts REAL, server TEXT, verdict TEXT, data TEXT);
+CREATE TABLE IF NOT EXISTS hops (
+  id INTEGER PRIMARY KEY, ts REAL, entry TEXT, exit TEXT, ping_ms REAL, ok INTEGER, error TEXT);
 CREATE INDEX IF NOT EXISTS idx_block ON block_checks(server, ts);
 CREATE INDEX IF NOT EXISTS idx_dns ON dns(server, ts);
 CREATE INDEX IF NOT EXISTS idx_polls ON polls(server, ts);
 CREATE INDEX IF NOT EXISTS idx_peers ON peers(server, ts);
+CREATE INDEX IF NOT EXISTS idx_hops ON hops(entry, exit, ts);
 CREATE INDEX IF NOT EXISTS idx_events ON events(ts);
 """
 
@@ -810,6 +828,12 @@ class Store:
         self.db.execute("INSERT INTO events(ts, server, kind, subject, message) VALUES (?,?,?,?,?)",
                         (ts, server, kind, subject, message))
 
+    def add_hops(self, ts, entry: str, hops: list) -> None:
+        for h in hops or []:
+            self.db.execute(
+                "INSERT INTO hops(ts, entry, exit, ping_ms, ok, error) VALUES (?,?,?,?,?,?)",
+                (ts, entry, h.get("exit"), h.get("ping_ms"), int(bool(h.get("ok"))), h.get("error")))
+
     def commit(self):
         self.db.commit()
 
@@ -840,11 +864,13 @@ class PollResult:
     dns_note: Optional[str] = None
     dns_coverage_sec: Optional[float] = None
     ports: Optional[list] = None                  # опубликованные порты VPN (None — не удалось прочитать)
+    hops: list = field(default_factory=list)      # задержка вход→выход (только при режиме каскада)
 
 
 def collect(srv: ServerCfg, runner_factory: Callable[[ServerCfg], Runner], now: float,
             clients_map: dict, online_sec: int,
-            probe: Optional[Callable[[ServerCfg], tuple]] = None) -> PollResult:
+            probe: Optional[Callable[[ServerCfg], tuple]] = None,
+            hop_targets: Optional[list] = None) -> PollResult:
     res = PollResult(server=srv.name, ts=now)
     if probe is None:
         res.tcp_ms = tcp_latency(srv.host, srv.port, srv.timeout)
@@ -926,6 +952,9 @@ def collect(srv: ServerCfg, runner_factory: Callable[[ServerCfg], Runner], now: 
                         info = {"status": "no_log", "entries": [], "coverage_sec": None,
                                 "note": _DNS_NOTES["no_log"]}
             apply_dns_result(res, info)
+        if hop_targets and res.ssh_ok:
+            import cascade
+            res.hops = cascade.collect_hops(runner, hop_targets)
     except Exception as e:
         res.error = f"Ошибка опроса: {type(e).__name__}: {e}"
     finally:
@@ -1177,13 +1206,19 @@ def do_check(cfg: Config, store: Store, notifier: Notifier, runner_factory=None,
     all_events = []
     from concurrent.futures import ThreadPoolExecutor
     ts = now or time.time()
+    import cascade
+    hop_map = cascade.hop_targets(getattr(cfg, "cascade", None), cfg.servers)
     with ThreadPoolExecutor(max_workers=min(8, len(cfg.servers))) as pool:   # серверы опрашиваются параллельно
         results = list(pool.map(lambda s: collect(s, runner_factory, ts, cfg.clients,
-                                                  cfg.handshake_online_sec, probe), cfg.servers))
+                                                  cfg.handshake_online_sec, probe,
+                                                  hop_map.get(s.name)), cfg.servers))
     for srv, r in zip(cfg.servers, results):
         log.info("%s: ssh_ok=%s peers=%d/%d err=%s", srv.safe(), r.ssh_ok,
                  sum(p["online"] for p in r.peers), len(r.peers), r.error)
         all_events += process(store, cfg, r)
+        if r.hops:
+            store.add_hops(r.ts, r.server, r.hops)
+            store.commit()
     if all_events:
         notifier.send("\n".join(all_events))
     return all_events

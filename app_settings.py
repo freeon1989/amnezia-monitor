@@ -84,7 +84,24 @@ def public_view(raw: dict) -> dict:
                         "interval_hours": float(bc.get("interval_hours", 6))},
         "telegram": {"chat_id": str(tg.get("chat_id") or ""),
                      "has_token": bool(tg.get("token") or tg.get("token_enc"))},
+        "cascade": _cascade_view(raw),
     }
+
+
+
+def _cascade_view(raw: dict) -> dict:
+    import cascade
+    names = [s.get("name") for s in (raw.get("servers") or []) if s.get("name")]
+    return cascade.public_view(cascade.parse_cascade(raw, names, strict=False))
+
+
+def _apply_cascade(raw: dict, payload: dict, names: set) -> dict:
+    """Если в payload нет cascade — оставляем прежнюю секцию (или ничего)."""
+    import cascade
+    if "cascade" not in payload:
+        return raw.get("cascade") if isinstance(raw.get("cascade"), dict) else None
+    cfg = cascade.parse_cascade(payload, names, strict=True)
+    return cascade.to_raw(cfg)
 
 
 def _country_text(value) -> str:
@@ -215,6 +232,17 @@ def apply_update(raw: dict, payload: dict) -> dict:
     if tg:
         new["telegram"] = tg
     new["servers"] = servers
+    try:
+        cas = _apply_cascade(raw, payload, names)
+    except Exception as e:
+        import cascade
+        if isinstance(e, cascade.CascadeError):
+            raise SettingsError(str(e))
+        raise
+    if cas is not None:
+        new["cascade"] = cas
+    elif "cascade" in new:
+        new.pop("cascade", None)
     return new
 
 
@@ -434,6 +462,17 @@ class SettingsContext:
             raise SettingsError("неизвестный сервер")
         remote = self.dns_remote_factory(srv) if self.dns_remote_factory else None
         return dns_setup.run_for_server(srv, action, runner_factory=self.runner_factory, remote=remote)
+
+    def cascade_import(self, payload: dict) -> dict:
+        """Просмотр топологии из локальной базы Cascade Control. Настройки не сохраняет."""
+        import cascade
+        raw = read_raw(self.config_path)
+        servers = [{"name": s.get("name"), "host": s.get("host")} for s in raw.get("servers") or []]
+        path = str((payload or {}).get("path") or "").strip() or None
+        try:
+            return cascade.import_topology(path, servers)
+        except cascade.CascadeError as e:
+            raise SettingsError(str(e))
 
     def update_action(self, action: str, payload: dict) -> dict:
         """Обновление программы с GitHub. Установка — только по явному нажатию (download → restart)."""

@@ -16,6 +16,13 @@ DEMO_SERVERS = [
     am.ServerCfg(name="test4", host="203.0.113.14", password="CHANGE_ME_4", country="us"),
 ]
 
+# Демо-каскад для скриншотов и тестов режима: выдуманные адреса документации, не реальные серверы.
+CASCADE_DEMO_SERVERS = [
+    am.ServerCfg(name="Питер", host="203.0.113.21", password="CHANGE_ME_1", country="ru"),
+    am.ServerCfg(name="Амстердам", host="203.0.113.22", password="CHANGE_ME_2", country="nl"),
+    am.ServerCfg(name="Вена", host="203.0.113.23", password="CHANGE_ME_3", country="at"),
+]
+
 
 def fake_key(seed: str) -> str:
     return base64.b64encode(hashlib.sha256(seed.encode()).digest()).decode()
@@ -50,6 +57,8 @@ class FakeRunner(am.Runner):
         if not am._ALLOWED_RE.match(cmd):   # та же проверка белого списка, что и в SSHRunner
             raise PermissionError(cmd)
         n, t, sc = self.srv.name, self.tick, self.sc
+        if n in {s.name for s in CASCADE_DEMO_SERVERS}:
+            return self._run_cascade(cmd)
         idx = int(n[-1])
         if cmd == "cat /proc/uptime":
             return 0, f"{1234567 + idx * 86400 + t * TICK}.12 999.0\n", ""
@@ -91,6 +100,10 @@ class FakeRunner(am.Runner):
             data = [{"clientId": fake_key(nm), "userData": {"clientName": nm, "creationDate": "Mon Sep 1 2026"}}
                     for nm, cc in CLIENTS[n] if cc == c]
             return 0, json.dumps(data, ensure_ascii=False), ""
+        if cmd.startswith("ping -c 2 -W 2 "):
+            host = cmd.split()[-1]
+            avg = 18 + (sum(map(ord, host)) % 35)
+            return 0, f"rtt min/avg/max/mdev = {avg-2:.1f}/{avg:.1f}/{avg+4:.1f}/0.5 ms\n", ""
         if "show all dump" in cmd:
             c = cmd.split()[2]
             lines = [f"wg0\tPRIVATE_KEY_NEVER_STORED=\t{fake_key(n + 'srv')}\t51820\toff"]
@@ -107,6 +120,57 @@ class FakeRunner(am.Runner):
                 rx = (i + 1) * 150_000_000 + t * 3_000_000
                 tx = (i + 1) * 900_000_000 + t * 25_000_000
                 lines.append(f"wg0\t{fake_key(nm)}\t(none)\t{ep}\t10.8.1.{i + 2}/32\t{hs}\t{rx}\t{tx}\t25")
+            return 0, "\n".join(lines) + "\n", ""
+        return 1, "", "unknown"
+
+
+    def _run_cascade(self, cmd):
+        n, now = self.srv.name, self.now
+        idx = {"Питер": 1, "Амстердам": 2, "Вена": 3}[n]
+        if cmd == "cat /proc/uptime":
+            return 0, f"{2000000 + idx * 86400}.12 999.0\n", ""
+        if cmd == "cat /proc/loadavg":
+            return 0, f"{0.20*idx} {0.15*idx} {0.10*idx} 2/180 12345\n", ""
+        if cmd == "nproc":
+            return 0, "2\n", ""
+        if cmd == "cat /proc/meminfo":
+            total = 8 * 1024 * 1024
+            return 0, f"MemTotal: {total} kB\nMemFree: 100000 kB\nMemAvailable: {int(total*0.55)} kB\n", ""
+        if cmd.startswith("head -1 /proc/stat"):
+            return 0, "cpu  200000 0 0 800000 0 0 0 0 0 0\ncpu  200200 0 0 800800 0 0 0 0 0 0\n", ""
+        if cmd == "cat /proc/net/dev":
+            rate = {"Питер": 900_000, "Амстердам": 500_000, "Вена": 350_000}[n]
+            return 0, ("Inter-|   Receive  |  Transmit\n face |bytes packets ...\n"
+                       f"    lo: 5000 50 0 0 0 0 0 0 5000 50 0 0 0 0 0 0\n"
+                       f"  eth0: {10**10+rate} 1 0 0 0 0 0 0 {2*10**10+rate} 1 0 0 0 0 0 0\n"), ""
+        if cmd.endswith("ps -a --format '{{.Names}}|{{.Status}}|{{.Image}}|{{.Ports}}'"):
+            rows = ["amnezia-awg|Up 12 days|amneziavpn/amnezia-awg:latest|0.0.0.0:51820->51820/udp"]
+            if n == "Питер":
+                rows += ["amnezia-dns|Up 12 days|amneziavpn/amnezia-dns:latest",
+                         "amnezia-xray|Up 12 days|amneziavpn/amnezia-xray:latest|0.0.0.0:443->443/tcp"]
+            else:
+                rows.append("amnezia-xray|Up 20 days|amneziavpn/amnezia-xray:latest|0.0.0.0:443->443/tcp")
+            return 0, "\n".join(rows) + "\n", ""
+        if "clientsTable" in cmd:
+            if n != "Питер":
+                return 0, "[]", ""
+            data = [{"clientId": fake_key(nm), "userData": {"clientName": nm}}
+                    for nm, _, _, _, _, _ in CASCADE_DEMO_USERS]
+            return 0, json.dumps(data, ensure_ascii=False), ""
+        if cmd.startswith("ping -c 2 -W 2 "):
+            host = cmd.split()[-1]
+            avg = 18 + (sum(map(ord, host)) % 35)
+            return 0, f"rtt min/avg/max/mdev = {avg-2:.1f}/{avg:.1f}/{avg+4:.1f}/0.5 ms\n", ""
+        if "show all dump" in cmd:
+            lines = [f"wg0\tPRIVATE_KEY_NEVER_STORED=\t{fake_key(n + 'srv')}\t51820\toff"]
+            if n == "Питер":
+                for i, u in enumerate(CASCADE_DEMO_USERS):
+                    nm = u[0]
+                    hs = int(now) - 20
+                    lines.append(f"wg0\t{fake_key(nm)}\t(none)\t198.51.100.{30+i}:{40000+i}\t10.10.1.{i+2}/32\t{hs}\t{150000000}\t{900000000}\t25")
+            else:
+                hs = int(now) - 12
+                lines.append(f"wg0\t{fake_key('cascade-'+n)}\t(none)\t203.0.113.21:51820\t10.10.1.0/24\t{hs}\t100000000\t200000000\t25")
             return 0, "\n".join(lines) + "\n", ""
         return 1, "", "unknown"
 
@@ -282,6 +346,9 @@ DEMO_BLOCKS = {
     "test2": {22: ("ok", 3, 8)},
     "test3": {22: ("timeout", 0, 0)},
     "test4": {22: ("ok", 2, 3)},
+    "Питер": {22: ("reset_after_banner", 3, 8), 443: ("ok", 3, 8)},
+    "Амстердам": {22: ("ok", 3, 8), 443: ("ok", 3, 8)},
+    "Вена": {22: ("ok", 3, 8), 443: ("ok", 3, 8)},
 }
 
 
@@ -305,7 +372,8 @@ class DemoCheckHost:
 
     def result(self, rid):
         kind, host, nodes = self.reqs[rid]
-        srv = next((s.name for s in DEMO_SERVERS if host.split(":")[0] == s.host), None)
+        srv = next((s.name for s in list(DEMO_SERVERS) + list(CASCADE_DEMO_SERVERS)
+                    if host.split(":")[0] == s.host), None)
         plan = self.plan.get(srv, {})
         if kind == "ping":
             alive = any(w for _, _, w in plan.values()) or any(r for _, r, _ in plan.values())
@@ -327,7 +395,7 @@ class DemoCheckHost:
 
 
 def demo_local_probe(target, host, sni=None):
-    srv = next((s.name for s in DEMO_SERVERS if s.host == host), None)
+    srv = next((s.name for s in list(DEMO_SERVERS) + list(CASCADE_DEMO_SERVERS) if s.host == host), None)
     if target.get("probe") is None:
         return {"status": "skipped", "ms": None, "detail": "не проверялся"}
     st = DEMO_BLOCKS.get(srv, {}).get(target["port"], ("ok", 3, 8))[0]
@@ -358,6 +426,133 @@ def demo_store(path=None, now=None):
     cfg = am.Config(servers=DEMO_SERVERS, interval=600)
     store = am.Store(path)
     build_dashboard_demo(store, cfg, now)
+    demo_blocks(store, cfg, now)
+    store.db.close()
+    return path, cfg, now
+
+
+# ---------------------------------------------------------------------------
+# Демо-панель с включённым режимом каскада (выдуманные адреса 203.0.113.x)
+# ---------------------------------------------------------------------------
+import cascade  # noqa: E402
+
+CASCADE_DEMO_USERS = [
+    ("Иван — телефон", "Питер", "amnezia-awg", set(range(7, 24)), 180_000,
+     ["youtube.com", "telegram.org", "instagram.com", "github.com"]),
+    ("Иван — ноутбук", "Питер", "amnezia-awg", set(range(9, 20)), 420_000,
+     ["github.com", "openai.com", "googleapis.com", "youtube.com"]),
+    ("Мама", "Питер", "amnezia-awg", set(range(10, 23)), 90_000,
+     ["youtube.com", "whatsapp.net", "instagram.com", "rutube.ru"]),
+    ("Офис", "Питер", "amnezia-awg", set(range(9, 18)), 260_000,
+     ["microsoft.com", "office.com", "zoom.us"]),
+]
+CASCADE_END_ONLINE = {"Иван — ноутбук", "Мама", "Офис"}
+CASCADE_HOP_MS = {"Амстердам": 28.4, "Вена": 41.2}
+
+
+def cascade_demo_cfg():
+    cas = cascade.CascadeCfg(enabled=True, links=[
+        cascade.CascadeLink(entry="Питер", exits=["Амстердам", "Вена"]),
+    ])
+    return am.Config(servers=CASCADE_DEMO_SERVERS, interval=600, cascade=cas)
+
+
+def build_cascade_dashboard_demo(store, cfg, now: float, hours: int = 24, step: int = 600, seed: int = 11):
+    import datetime as _dt
+    rnd = random.Random(seed)
+    steps = hours * 3600 // step
+    base = now - steps * step
+    users = CASCADE_DEMO_USERS
+    counters = {u[0]: [rnd.randint(2, 40) * 10**9, rnd.randint(1, 8) * 10**8] for u in users}
+    last_hs = {u[0]: 0 for u in users}
+    cpu = {s.name: [10**6, 4 * 10**6] for s in cfg.servers}
+    net = {s.name: [10**11, 2 * 10**11] for s in cfg.servers}
+    ips = {}
+    for i, u in enumerate(users):
+        ips[u[0]] = f"10.10.1.{i + 2}"
+    rates = {"Питер": (1_200_000, 900_000), "Амстердам": (700_000, 520_000), "Вена": (480_000, 360_000)}
+    lat = {"Питер": 18.0, "Амстердам": 36.0, "Вена": 44.0}
+    for k in range(steps + 1):
+        ts = base + k * step
+        hour = _dt.datetime.fromtimestamp(ts).hour
+        for srv in cfg.servers:
+            n = srv.name
+            r = am.PollResult(server=n, ts=ts, ssh_ok=True, reachable=True)
+            r.tcp_ms = round(lat[n] + rnd.random() * 6, 1)
+            r.ping_ms = r.tcp_ms
+            r.uptime_s = 2_000_000 + k * step
+            r.nproc = 2
+            busy = 0.18 + 0.04 * (0 if n == "Питер" else 1) + rnd.random() * 0.12
+            idle_d, busy_d = int(step * 100 * (1 - busy)), int(step * 100 * busy)
+            cpu[n][0] += busy_d
+            cpu[n][1] += idle_d
+            r.cpu_raw = (cpu[n][0], cpu[n][1] + cpu[n][0])
+            r.cpu_now = busy * 100
+            r.mem = {"percent": 38 + (0 if n == "Питер" else 8), "used": 3 * 1024**3, "total": 8 * 1024**3}
+            rd, ru = rates[n]
+            net[n][0] += int(rd * step * (0.7 + rnd.random() * 0.6))
+            net[n][1] += int(ru * step * (0.7 + rnd.random() * 0.6))
+            r.net = {"eth0": tuple(net[n])}
+            if n == "Питер":
+                r.containers = [
+                    {"name": "amnezia-awg", "type": "awg", "up": True, "status": "Up 12 days"},
+                    {"name": "amnezia-dns", "type": "dns", "up": True, "status": "Up 12 days"},
+                    {"name": "amnezia-xray", "type": "xray", "up": True, "status": "Up 12 days"},
+                ]
+                peers, lines = [], []
+                for i, u in enumerate(users):
+                    active = hour in u[3]
+                    online = (u[0] in CASCADE_END_ONLINE) if k == steps else active
+                    if online:
+                        last_hs[u[0]] = int(ts) - rnd.randint(8, 40)
+                    dlt = int(u[4] * step * (0.6 + rnd.random())) if active else 0
+                    counters[u[0]][0] += int(dlt * 0.22)
+                    counters[u[0]][1] += dlt
+                    peers.append({
+                        "pubkey": fake_key(u[0]), "client": u[0], "container": "amnezia-awg",
+                        "endpoint": f"198.51.100.{30+i}:{40000+i}" if last_hs[u[0]] else "(none)",
+                        "allowed_ips": ips[u[0]] + "/32",
+                        "handshake": last_hs[u[0]], "rx": counters[u[0]][0], "tx": counters[u[0]][1],
+                        "online": online,
+                    })
+                    if online:
+                        for _ in range(rnd.randint(2, 8)):
+                            dom = rnd.choice(u[5])
+                            q_ts = _dt.datetime.fromtimestamp(ts - rnd.randint(0, step - 1)).astimezone().isoformat()
+                            lines.append(json.dumps({"T": q_ts, "QH": "www." + dom, "QT": "A",
+                                                     "IP": ips[u[0]]}))
+                r.peers = peers
+                am.attach_dns(r, "\n".join(lines))
+            else:
+                r.containers = [
+                    {"name": "amnezia-awg", "type": "awg", "up": True, "status": "Up 20 days"},
+                    {"name": "amnezia-xray", "type": "xray", "up": True, "status": "Up 20 days"},
+                ]
+                # На выходе виден пир каскадного туннеля (endpoint = адрес входа).
+                tun_rx = net[n][0] // 8
+                tun_tx = net[n][1] // 8
+                r.peers = [{
+                    "pubkey": fake_key("cascade-" + n), "client": "каскад: Питер",
+                    "container": "amnezia-awg",
+                    "endpoint": "203.0.113.21:51820", "allowed_ips": "10.10.1.0/24",
+                    "handshake": int(ts) - 12, "rx": tun_rx, "tx": tun_tx, "online": True,
+                }]
+            am.process(store, cfg, r)
+        store.add_hops(ts, "Питер", [
+            {"exit": "Амстердам", "ping_ms": CASCADE_HOP_MS["Амстердам"] + rnd.random() * 2, "ok": True, "error": None},
+            {"exit": "Вена", "ping_ms": CASCADE_HOP_MS["Вена"] + rnd.random() * 2, "ok": True, "error": None},
+        ])
+        store.commit()
+
+
+def demo_store_cascade(path=None, now=None):
+    """Демо-база с включённым режимом каскада. Адреса — из диапазона документации."""
+    import time
+    now = now or time.time()
+    path = path or os.path.join(tempfile.mkdtemp(prefix="amnezia-cascade-demo-"), "demo.db")
+    cfg = cascade_demo_cfg()
+    store = am.Store(path)
+    build_cascade_dashboard_demo(store, cfg, now)
     demo_blocks(store, cfg, now)
     store.db.close()
     return path, cfg, now

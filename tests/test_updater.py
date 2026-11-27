@@ -105,16 +105,16 @@ class FakeGitHub:
 class Versions(unittest.TestCase):
     def test_semver_compare(self):
         self.assertTrue(updater.is_newer("v1.10.0", "1.9.9"))
-        self.assertTrue(updater.is_newer("1.5.0", "1.4.2"))
-        self.assertFalse(updater.is_newer("1.5.0", "1.5.0"))
-        self.assertFalse(updater.is_newer("1.4.9", "1.5.0"))
-        for bad in ("", "latest", "1.5", "1.5.0-beta", "v1.2.3.4", "1.2.x"):
+        self.assertTrue(updater.is_newer("1.6.0", "1.4.2"))
+        self.assertFalse(updater.is_newer("1.6.0", "1.6.0"))
+        self.assertFalse(updater.is_newer("1.4.9", "1.6.0"))
+        for bad in ("", "latest", "1.5", "1.6.0-beta", "v1.2.3.4", "1.2.x"):
             with self.assertRaises(updater.UpdateError):
                 updater.parse_version(bad)
 
     def test_app_version_consistent(self):
         from version import __version__
-        self.assertEqual(__version__, "1.5.0")
+        self.assertEqual(__version__, "1.6.0")
         import blockcheck
         self.assertEqual(blockcheck.APP_VERSION, __version__)
 
@@ -135,7 +135,7 @@ class FetchAndDownload(unittest.TestCase):
     def test_check_finds_newer_and_changelog_without_downloading(self):
         gh = FakeGitHub(version="1.9.0", notes="• Исправлено А\n• Добавлено Б")
         self.addCleanup(gh.close)
-        m = updater.UpdateManager(self.tmp, src=gh.source(), current="1.5.0", installable=True)
+        m = updater.UpdateManager(self.tmp, src=gh.source(), current="1.6.0", installable=True)
         s = m.check(manual=True)
         self.assertTrue(s["available"])
         self.assertEqual(s["release"]["version"], "1.9.0")
@@ -143,9 +143,9 @@ class FetchAndDownload(unittest.TestCase):
         self.assertEqual(gh.asset_hits, 0, "проверка версии не должна скачивать файлы")
 
     def test_same_or_older_version_is_not_offered(self):
-        gh = FakeGitHub(version="1.5.0")
+        gh = FakeGitHub(version="1.6.0")
         self.addCleanup(gh.close)
-        m = updater.UpdateManager(self.tmp, src=gh.source(), current="1.5.0", installable=True)
+        m = updater.UpdateManager(self.tmp, src=gh.source(), current="1.6.0", installable=True)
         self.assertFalse(m.check(manual=True)["available"])
         with self.assertRaises(updater.UpdateError):
             m.start_download()
@@ -153,7 +153,7 @@ class FetchAndDownload(unittest.TestCase):
     def test_prerelease_ignored(self):
         gh = FakeGitHub(version="2.0.0", prerelease=True)
         self.addCleanup(gh.close)
-        m = updater.UpdateManager(self.tmp, src=gh.source(), current="1.5.0", installable=True)
+        m = updater.UpdateManager(self.tmp, src=gh.source(), current="1.6.0", installable=True)
         s = m.check(manual=True)
         self.assertFalse(s["available"])
         self.assertTrue(s["error"])
@@ -188,7 +188,7 @@ class FetchAndDownload(unittest.TestCase):
     def test_manager_tampered_flow_ends_in_error_state(self):
         gh = FakeGitHub(sha_override="f" * 64)
         self.addCleanup(gh.close)
-        m = updater.UpdateManager(self.tmp, src=gh.source(), current="1.5.0", installable=True)
+        m = updater.UpdateManager(self.tmp, src=gh.source(), current="1.6.0", installable=True)
         m.check(manual=True)
         m.start_download()
         for _ in range(100):
@@ -211,7 +211,7 @@ class FetchAndDownload(unittest.TestCase):
 
     def test_release_page_check(self):
         src = updater.Source()
-        self.assertTrue(updater.release_page_ok("https://github.com/freeon1989/amnezia-monitor/releases/tag/v1.5.0", src))
+        self.assertTrue(updater.release_page_ok("https://github.com/freeon1989/amnezia-monitor/releases/tag/v1.6.0", src))
         for bad in ("https://github.com/other/repo/releases/tag/v1", "http://github.com/freeon1989/amnezia-monitor/releases",
                     "https://evil.com/freeon1989/amnezia-monitor/releases", "javascript:alert(1)", ""):
             self.assertFalse(updater.release_page_ok(bad, src), bad)
@@ -241,7 +241,7 @@ class FetchAndDownload(unittest.TestCase):
     def test_release_without_assets_cannot_auto_install(self):
         gh = FakeGitHub(assets=False)
         self.addCleanup(gh.close)
-        m = updater.UpdateManager(self.tmp, src=gh.source(), current="1.5.0", installable=True)
+        m = updater.UpdateManager(self.tmp, src=gh.source(), current="1.6.0", installable=True)
         s = m.check(manual=True)
         self.assertTrue(s["available"])
         self.assertFalse(s["release"]["has_asset"])
@@ -255,7 +255,7 @@ class FetchAndDownload(unittest.TestCase):
     def test_non_windows_build_only_notifies(self):
         gh = FakeGitHub()
         self.addCleanup(gh.close)
-        m = updater.UpdateManager(self.tmp, src=gh.source(), current="1.5.0", installable=False)
+        m = updater.UpdateManager(self.tmp, src=gh.source(), current="1.6.0", installable=False)
         s = m.check(manual=True)
         self.assertTrue(s["available"] and not s["can_install"])
         with self.assertRaises(updater.UpdateError):
@@ -265,7 +265,7 @@ class FetchAndDownload(unittest.TestCase):
     def test_network_failure_is_a_readable_error(self):
         src = updater.Source(api_base="http://127.0.0.1:1", allowed_hosts=frozenset({"127.0.0.1"}),
                              allowed_schemes=("http",), timeout=2)
-        m = updater.UpdateManager(self.tmp, src=src, current="1.5.0", installable=True)
+        m = updater.UpdateManager(self.tmp, src=src, current="1.6.0", installable=True)
         s = m.check(manual=True)
         self.assertIn("Нет связи", s["error"])
         s = m.check(manual=False)                   # фоновая проверка молчит
@@ -274,12 +274,12 @@ class FetchAndDownload(unittest.TestCase):
     def test_skip_version_and_auto_check_persist(self):
         gh = FakeGitHub(version="1.9.0")
         self.addCleanup(gh.close)
-        m = updater.UpdateManager(self.tmp, src=gh.source(), current="1.5.0", installable=True)
+        m = updater.UpdateManager(self.tmp, src=gh.source(), current="1.6.0", installable=True)
         m.check(manual=True)
         m.skip("1.9.0")
         self.assertTrue(m.status()["skipped"])
         m.set_auto_check(False)
-        m2 = updater.UpdateManager(self.tmp, src=gh.source(), current="1.5.0", installable=True)   # «перезапуск»
+        m2 = updater.UpdateManager(self.tmp, src=gh.source(), current="1.6.0", installable=True)   # «перезапуск»
         self.assertFalse(m2.auto_check)
         self.assertFalse(m2.auto_check_due())
         m2.check(manual=True)
@@ -294,7 +294,7 @@ class FetchAndDownload(unittest.TestCase):
         gh = FakeGitHub()
         self.addCleanup(gh.close)
         launched, exited = [], threading.Event()
-        m = updater.UpdateManager(self.tmp, src=gh.source(), current="1.5.0", installable=True,
+        m = updater.UpdateManager(self.tmp, src=gh.source(), current="1.6.0", installable=True,
                                   target=self.tmp / "AmneziaMonitor.exe",
                                   launcher=lambda t, n, v: launched.append((t, n, v)), on_exit=exited.set)
         m.check(manual=True)
@@ -428,7 +428,7 @@ class ApplyUpdate(unittest.TestCase):
     def test_selftest_main_writes_version(self):
         out = self.tmp / "st.json"
         self.assertEqual(updater.selftest_main(str(out)), 0)
-        self.assertEqual(json.loads(out.read_text())["version"], "1.5.0")
+        self.assertEqual(json.loads(out.read_text())["version"], "1.6.0")
         self.assertEqual(app_main.main(["--update-selftest", str(out)]), 0)
 
 
@@ -445,7 +445,7 @@ class UpdateHTTP(unittest.TestCase):
         self.addCleanup(self.gh.close)
         self.opened = []
         self.launched = []
-        self.mgr = updater.UpdateManager(self.dir, src=self.gh.source(), current="1.5.0", installable=True,
+        self.mgr = updater.UpdateManager(self.dir, src=self.gh.source(), current="1.6.0", installable=True,
                                          launcher=lambda t, n, v: self.launched.append(v), on_exit=lambda: None)
         self.ctx = st.SettingsContext(self.cfgp, "TOKEN123", str(self.dir), updates=self.mgr,
                                       open_url=self.opened.append)
@@ -479,7 +479,7 @@ class UpdateHTTP(unittest.TestCase):
 
     def test_check_download_restart_via_api(self):
         code, s = self.req("GET", "/api/update/status")
-        self.assertEqual((code, s["available"], s["current"]), (200, False, "1.5.0"))
+        self.assertEqual((code, s["available"], s["current"]), (200, False, "1.6.0"))
         code, s = self.req("POST", "/api/update/check", {})
         self.assertTrue(s["available"])
         self.assertEqual(self.gh.asset_hits, 0)
@@ -547,7 +547,7 @@ class UpdateHTTP(unittest.TestCase):
         self.assertIn("updBanner", page)
         self.assertIn("Проверить обновления", page)
         code, s = self.req("GET", "/api/settings")
-        self.assertEqual(s["version"], "1.5.0")
+        self.assertEqual(s["version"], "1.6.0")
 
     def test_check_loop_runs_and_stops(self):
         stop = threading.Event()

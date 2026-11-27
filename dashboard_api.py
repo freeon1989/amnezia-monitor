@@ -52,7 +52,8 @@ def api_servers(store, cfg=None, now: Optional[float] = None) -> list:
     out = _api_servers(store, cfg, now)
     for s in out:
         s["theme"] = server_theme(cfg, s["name"])
-    return out
+    import cascade
+    return cascade.annotate_servers(out, cfg)
 
 
 def _api_servers(store, cfg, now: float) -> list:
@@ -227,9 +228,64 @@ def api_server(store, cfg, name: str, now: Optional[float] = None, hours: float 
 
     events = [{"ts": e["ts"], "kind": e["kind"], "message": e["message"]} for e in db.execute(
         "SELECT * FROM events WHERE server=? ORDER BY ts DESC LIMIT 25", (name,))]
-    return {"name": name, "host": _hosts(cfg).get(name), "now": now, "current": cur, "containers": containers,
+    result = {"name": name, "host": _hosts(cfg).get(name), "now": now, "current": cur, "containers": containers,
             "series": series, "users": users, "totals": {"down_24h": tot_down, "up_24h": tot_up},
             "dns": dns, "events": events}
+    return _with_cascade_users(store, cfg, name, result)
+
+
+
+def _with_cascade_users(store, cfg, name, result) -> dict:
+    """На выходе: клиенты входа (через вход) вместо одного пира туннеля."""
+    import cascade
+    cas = getattr(cfg, "cascade", None) or cascade.empty()
+    if not cas.enabled:
+        return result
+    roles = cascade.roles_for(cas)
+    role = roles.get(name)
+    if not role:
+        return result
+    result["cascade"] = {"role": role, "entry": cascade.entry_of(cas, name),
+                         "exits": cascade.exits_of(cas, name) if role == "entry" else []}
+    if role != "exit":
+        return result
+    entry = cascade.entry_of(cas, name)
+    hosts = _hosts(cfg)
+    entry_host = hosts.get(entry) or ""
+    tunnels, other = [], []
+    for u in result.get("users") or []:
+        ep = u.get("endpoint") or ""
+        if cascade.is_tunnel_peer({"endpoint": ep}, entry_host):
+            u["tunnel"] = True
+            if not str(u.get("client") or "").startswith("каскад"):
+                u["client"] = "каскад: " + (entry or "")
+            tunnels.append(u)
+        else:
+            other.append(u)
+    via = []
+    last = store.db.execute("SELECT MAX(ts) m FROM peers WHERE server=?", (entry,)).fetchone() if entry else None
+    ts = last["m"] if last else None
+    if ts:
+        for r in store.db.execute(
+            "SELECT * FROM peers WHERE server=? AND ts=? ORDER BY online DESC, client", (entry, ts)
+        ):
+            via.append({
+                "client": r["client"], "pubkey": (r["pubkey"] or "")[:10] + "…",
+                "container": r["container"], "online": bool(r["online"]),
+                "handshake_age": None,
+                "endpoint": None, "via_entry": entry, "tunnel": False,
+                "rate_down": None, "rate_up": None, "spark": [],
+                "down_24h": 0, "up_24h": 0,
+                "down_total": r["tx"] or 0, "up_total": r["rx"] or 0,
+                "hourly": [],
+            })
+    result["users"] = via + other + tunnels
+    return result
+
+
+def api_cascade(store, cfg=None, now: Optional[float] = None) -> dict:
+    import cascade
+    return cascade.api_cascade(store, cfg, now, theme_fn=server_theme)
 
 
 def api_snapshot(store, cfg=None, now: Optional[float] = None) -> dict:
@@ -238,4 +294,5 @@ def api_snapshot(store, cfg=None, now: Optional[float] = None) -> dict:
     return {"servers": api_servers(store, cfg, now),
             "details": {n: api_server(store, cfg, n, now) for n in server_names(store, cfg)},
             "blocks": {n: api_blocks(store, n, now) for n in server_names(store, cfg)},
+            "cascade": api_cascade(store, cfg, now),
             "generated": now}

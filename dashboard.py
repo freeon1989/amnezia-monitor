@@ -159,6 +159,8 @@ def make_handler(store_factory, cfg, demo=False, settings=None):
                 try:
                     if u.path == "/api/servers":
                         return self._json(api.api_servers(store, cfg_now))
+                    if u.path == "/api/cascade":
+                        return self._json(api.api_cascade(store, cfg_now))
                     if u.path == "/api/blocks":
                         name = (q.get("name") or [""])[0]
                         if name not in api.server_names(store, cfg_now):
@@ -181,7 +183,7 @@ def make_handler(store_factory, cfg, demo=False, settings=None):
             u = urlparse(self.path)
             if u.path not in ("/api/settings", "/api/settings/test", "/api/app/quit", "/api/server/dns-log",
                               "/api/settings/trust-hostkey", "/api/blocks/check", "/api/blocks/local",
-                              "/api/appearance") and u.path not in UPDATE_POSTS:
+                              "/api/appearance", "/api/settings/cascade-import") and u.path not in UPDATE_POSTS:
                 return self._json({"error": "not found"}, 404)
             if not self._settings_guard():
                 return
@@ -194,6 +196,8 @@ def make_handler(store_factory, cfg, demo=False, settings=None):
                     return self._json(settings.save(payload))
                 if u.path == "/api/appearance":
                     return self._json(settings.appearance(payload))
+                if u.path == "/api/settings/cascade-import":
+                    return self._json(settings.cascade_import(payload))
                 if u.path == "/api/settings/test":
                     return self._json(settings.test(payload))
                 if u.path == "/api/settings/trust-hostkey":
